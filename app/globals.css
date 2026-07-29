@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #f8fafc; color: #172033; }
+button, input { font: inherit; }
+:focus-visible { outline: 3px solid #4f46e5; outline-offset: 2px; }

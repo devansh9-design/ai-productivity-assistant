@@ -1,0 +1,16 @@
+# Dependencies and build output
+node_modules/
+.next/
+out/
+coverage/
+
+# Local environment files may contain credentials
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Local tooling
+*.log
+.DS_Store
+*.tsbuildinfo
