@@ -9,6 +9,8 @@ const navigation = [
   { href: "/today", label: "Today" },
   { href: "/tasks", label: "Tasks" },
   { href: "/goals", label: "Goals" },
+  { href: "/projects", label: "Projects" },
+  { href: "/milestones", label: "Milestones" },
   { href: "/analytics", label: "Analytics" },
   { href: "/settings", label: "Settings" },
 ];
