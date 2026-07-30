@@ -11,6 +11,25 @@
 -- null. Actual policy behavior is covered by scripts/rls-regression-test.mjs
 -- against a real Supabase project (Fix 7); this stub only proves the
 -- schema itself builds cleanly (Fix 8).
+-- Create Supabase roles for CI
+
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    CREATE ROLE anon;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    CREATE ROLE service_role;
+  END IF;
+END
+$$;
+
 
 create schema if not exists auth;
 
