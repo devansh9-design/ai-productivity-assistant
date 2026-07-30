@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { filterTasks } from "./filters";
+import { addDaysToISODate, getTodayISODate } from "./timezone";
 import type { Task } from "@/lib/types";
 
-const NOW = new Date("2026-07-30T09:00:00");
+const TODAY = "2026-07-30";
 
 function makeTask(overrides: Partial<Task>): Task {
   return {
@@ -20,8 +21,8 @@ function makeTask(overrides: Partial<Task>): Task {
     actual_minutes: null,
     due_date: null,
     energy_level: null,
-    created_at: NOW.toISOString(),
-    updated_at: NOW.toISOString(),
+    created_at: `${TODAY}T09:00:00.000Z`,
+    updated_at: `${TODAY}T09:00:00.000Z`,
     completed_at: null,
     ...overrides,
   };
@@ -39,34 +40,90 @@ describe("filterTasks", () => {
   ];
 
   it("inbox includes every open task regardless of date", () => {
-    const result = filterTasks(tasks, "inbox", NOW).map((t) => t.id);
+    const result = filterTasks(tasks, "inbox", TODAY).map((t) => t.id);
     expect(result).toEqual(["no-date", "today", "due-soon", "far-future", "overdue"]);
   });
 
   it("today includes only tasks due today", () => {
-    const result = filterTasks(tasks, "today", NOW).map((t) => t.id);
+    const result = filterTasks(tasks, "today", TODAY).map((t) => t.id);
     expect(result).toEqual(["today"]);
   });
 
   it("due-soon includes tasks due within the window, excluding today", () => {
-    const result = filterTasks(tasks, "due-soon", NOW).map((t) => t.id);
+    const result = filterTasks(tasks, "due-soon", TODAY).map((t) => t.id);
     expect(result).toEqual(["due-soon"]);
   });
 
   it("overdue includes only open tasks with a past due date", () => {
-    const result = filterTasks(tasks, "overdue", NOW).map((t) => t.id);
+    const result = filterTasks(tasks, "overdue", TODAY).map((t) => t.id);
     expect(result).toEqual(["overdue"]);
   });
 
   it("completed includes completed tasks even with a past due date", () => {
-    const result = filterTasks(tasks, "completed", NOW).map((t) => t.id);
+    const result = filterTasks(tasks, "completed", TODAY).map((t) => t.id);
     expect(result).toEqual(["completed"]);
   });
 
   it("skipped tasks are excluded from inbox, due windows, and completed", () => {
-    const inbox = filterTasks(tasks, "inbox", NOW).map((t) => t.id);
-    const completed = filterTasks(tasks, "completed", NOW).map((t) => t.id);
+    const inbox = filterTasks(tasks, "inbox", TODAY).map((t) => t.id);
+    const completed = filterTasks(tasks, "completed", TODAY).map((t) => t.id);
     expect(inbox).not.toContain("skipped");
     expect(completed).not.toContain("skipped");
+  });
+});
+
+describe("filterTasks timezone and calendar edge cases", () => {
+  it("a task due 'today' in the user's timezone is not overdue near UTC midnight", () => {
+    // 2026-07-30 23:30 UTC is already 2026-07-31 in UTC+1, and still
+    // 2026-07-30 in UTC-8. The filter must follow the user's calendar day,
+    // not whatever the server process's local clock happens to read.
+    const nowNearMidnightUTC = new Date("2026-07-30T23:30:00.000Z");
+
+    const todayInTokyo = getTodayISODate("Asia/Tokyo", nowNearMidnightUTC); // UTC+9
+    const todayInLosAngeles = getTodayISODate("America/Los_Angeles", nowNearMidnightUTC); // UTC-7/-8
+
+    expect(todayInTokyo).toBe("2026-07-31");
+    expect(todayInLosAngeles).toBe("2026-07-30");
+
+    const tasks = [makeTask({ id: "due-31st", due_date: "2026-07-31" })];
+
+    expect(filterTasks(tasks, "today", todayInTokyo).map((t) => t.id)).toEqual(["due-31st"]);
+    expect(filterTasks(tasks, "today", todayInLosAngeles).map((t) => t.id)).toEqual([]);
+    expect(filterTasks(tasks, "overdue", todayInLosAngeles).map((t) => t.id)).toEqual([]);
+  });
+
+  it("computes the correct local date across a DST transition", () => {
+    // US DST spring-forward: 2027-03-14 02:00 local becomes 03:00 in
+    // America/New_York. A naive server-local Date construction is prone to
+    // off-by-one errors right at the transition; the Intl-based formatter
+    // used by getTodayISODate is not.
+    const justBeforeSpringForwardUTC = new Date("2027-03-14T06:59:00.000Z"); // 01:59 EST
+    const justAfterSpringForwardUTC = new Date("2027-03-14T07:01:00.000Z"); // 03:01 EDT
+
+    expect(getTodayISODate("America/New_York", justBeforeSpringForwardUTC)).toBe("2027-03-14");
+    expect(getTodayISODate("America/New_York", justAfterSpringForwardUTC)).toBe("2027-03-14");
+  });
+
+  it("due-soon window correctly crosses a leap day", () => {
+    const today = "2028-02-27"; // 2028 is a leap year
+    const tasks = [
+      makeTask({ id: "leap-day", due_date: "2028-02-29" }),
+      makeTask({ id: "day-after-leap", due_date: "2028-03-01" }),
+    ];
+
+    expect(addDaysToISODate(today, 3)).toBe("2028-03-01");
+    expect(filterTasks(tasks, "due-soon", today).map((t) => t.id)).toEqual([
+      "leap-day",
+      "day-after-leap",
+    ]);
+  });
+
+  it("addDaysToISODate correctly rolls over a non-leap year end", () => {
+    expect(addDaysToISODate("2026-12-30", 3)).toBe("2027-01-02");
+  });
+
+  it("getTodayISODate falls back to UTC for an unrecognized timezone", () => {
+    const now = new Date("2026-07-30T12:00:00.000Z");
+    expect(getTodayISODate("Not/ARealZone", now)).toBe(getTodayISODate("UTC", now));
   });
 });

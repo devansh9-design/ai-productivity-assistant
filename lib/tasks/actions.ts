@@ -1,22 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth/require-user";
 import type { TaskPriority, TaskStatus, EnergyLevel } from "@/lib/types";
 
 const STATUSES: TaskStatus[] = ["todo", "in_progress", "completed", "skipped", "deferred"];
 const PRIORITIES: TaskPriority[] = ["low", "medium", "high", "urgent"];
 const ENERGY_LEVELS: EnergyLevel[] = ["low", "medium", "high"];
-
-async function requireUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-  return { supabase, user };
-}
 
 function optionalText(formData: FormData, key: string) {
   const value = String(formData.get(key) ?? "").trim();
@@ -59,7 +49,7 @@ export async function createTask(formData: FormData) {
 }
 
 export async function updateTaskStatus(formData: FormData) {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const id = String(formData.get("id") ?? "");
   const status = String(formData.get("status") ?? "");
   if (!id || !STATUSES.includes(status as TaskStatus)) {
@@ -72,7 +62,11 @@ export async function updateTaskStatus(formData: FormData) {
   const actualMinutes = optionalMinutes(formData, "actual_minutes");
   if (actualMinutes !== null) update.actual_minutes = actualMinutes;
 
-  const { error } = await supabase.from("tasks").update(update).eq("id", id);
+  const { error } = await supabase
+    .from("tasks")
+    .update(update)
+    .eq("id", id)
+    .eq("user_id", user.id);
   if (error) throw new Error(error.message);
 
   revalidatePath("/tasks");
@@ -80,11 +74,11 @@ export async function updateTaskStatus(formData: FormData) {
 }
 
 export async function deleteTask(formData: FormData) {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const id = String(formData.get("id") ?? "");
   if (!id) throw new Error("Missing task id.");
 
-  const { error } = await supabase.from("tasks").delete().eq("id", id);
+  const { error } = await supabase.from("tasks").delete().eq("id", id).eq("user_id", user.id);
   if (error) throw new Error(error.message);
 
   revalidatePath("/tasks");

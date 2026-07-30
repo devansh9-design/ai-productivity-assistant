@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createProject, deleteProject, updateProjectStatus } from "@/lib/projects/actions";
 import { StatusBadge, EmptyState } from "@/components/status-badge";
 import { StatusSelectForm } from "@/components/status-select-form";
+import { SubmitButton } from "@/components/submit-button";
 import type { Goal, Project } from "@/lib/types";
 
 const PROJECT_STATUSES = ["active", "completed", "archived"] as const;
@@ -64,12 +65,12 @@ export default async function ProjectsPage() {
             />
           </label>
         </div>
-        <button
-          type="submit"
+        <SubmitButton
+          pendingLabel="Adding…"
           className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
         >
           Add project
-        </button>
+        </SubmitButton>
       </form>
 
       <div className="mt-8 space-y-3">

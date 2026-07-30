@@ -1,4 +1,5 @@
 import type { Task } from "@/lib/types";
+import { addDaysToISODate } from "@/lib/tasks/timezone";
 
 export const TASK_FILTERS = ["inbox", "today", "due-soon", "overdue", "completed"] as const;
 export type TaskFilter = (typeof TASK_FILTERS)[number];
@@ -11,16 +12,6 @@ export function isTaskFilter(value: string | null | undefined): value is TaskFil
 
 const DUE_SOON_WINDOW_DAYS = 3;
 
-function toDateOnly(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function parseDueDate(dueDate: string | null): Date | null {
-  if (!dueDate) return null;
-  const parsed = new Date(`${dueDate}T00:00:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
 /**
  * Applies the Today workflow's filter semantics to a list of tasks.
  * - inbox: everything not completed or skipped, regardless of date.
@@ -28,15 +19,22 @@ function parseDueDate(dueDate: string | null): Date | null {
  * - due-soon: open tasks due within the next few days (excludes today/overdue).
  * - overdue: open tasks whose due date has passed.
  * - completed: tasks marked completed.
+ *
+ * `todayISODate` must be a YYYY-MM-DD string representing "today" in the
+ * *user's* timezone (see lib/tasks/timezone.ts) — never a `Date` object.
+ * `due_date` is already stored as a YYYY-MM-DD string, so every comparison
+ * here is a plain string comparison. ISO-formatted date strings of equal
+ * length compare correctly with standard `<`/`>`/`===`, which sidesteps the
+ * server-local-timezone bugs that `new Date(...)` wall-clock construction
+ * introduced (a task due "today" could show as tomorrow or yesterday
+ * depending on where the server process happened to be running).
  */
-export function filterTasks(tasks: Task[], filter: TaskFilter, now: Date = new Date()): Task[] {
-  const today = toDateOnly(now);
-  const dueSoonCutoff = new Date(today);
-  dueSoonCutoff.setDate(dueSoonCutoff.getDate() + DUE_SOON_WINDOW_DAYS);
+export function filterTasks(tasks: Task[], filter: TaskFilter, todayISODate: string): Task[] {
+  const dueSoonCutoff = addDaysToISODate(todayISODate, DUE_SOON_WINDOW_DAYS);
 
   return tasks.filter((task) => {
     const isOpen = task.status !== "completed" && task.status !== "skipped";
-    const dueDate = parseDueDate(task.due_date);
+    const dueDate = task.due_date;
 
     switch (filter) {
       case "inbox":
@@ -44,16 +42,11 @@ export function filterTasks(tasks: Task[], filter: TaskFilter, now: Date = new D
       case "completed":
         return task.status === "completed";
       case "today":
-        return isOpen && !!dueDate && dueDate.getTime() === today.getTime();
+        return isOpen && !!dueDate && dueDate === todayISODate;
       case "overdue":
-        return isOpen && !!dueDate && dueDate.getTime() < today.getTime();
+        return isOpen && !!dueDate && dueDate < todayISODate;
       case "due-soon":
-        return (
-          isOpen &&
-          !!dueDate &&
-          dueDate.getTime() > today.getTime() &&
-          dueDate.getTime() <= dueSoonCutoff.getTime()
-        );
+        return isOpen && !!dueDate && dueDate > todayISODate && dueDate <= dueSoonCutoff;
       default:
         return true;
     }

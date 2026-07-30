@@ -1,8 +1,12 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createTask, deleteTask, updateTaskStatus } from "@/lib/tasks/actions";
 import { StatusBadge, PriorityBadge, EmptyState } from "@/components/status-badge";
+import { SubmitButton } from "@/components/submit-button";
+import { TIMEZONE_COOKIE_NAME } from "@/components/timezone-sync";
 import { DEFAULT_TASK_FILTER, TASK_FILTERS, filterTasks, isTaskFilter, type TaskFilter } from "@/lib/tasks/filters";
+import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
 import type { Goal, Milestone, Project, Task } from "@/lib/types";
 
 const FILTER_LABELS: Record<TaskFilter, string> = {
@@ -21,6 +25,10 @@ export default async function TasksPage({
   const { filter: rawFilter } = await searchParams;
   const filter: TaskFilter = isTaskFilter(rawFilter) ? rawFilter : DEFAULT_TASK_FILTER;
 
+  const cookieStore = await cookies();
+  const timeZone = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value || DEFAULT_TIMEZONE;
+  const todayISODate = getTodayISODate(timeZone);
+
   const supabase = await createClient();
   const [{ data: tasks, error }, { data: goals }, { data: projects }, { data: milestones }] = await Promise.all([
     supabase.from("tasks").select("*").order("due_date", { ascending: true }).returns<Task[]>(),
@@ -30,7 +38,7 @@ export default async function TasksPage({
   ]);
 
   const allTasks = tasks ?? [];
-  const visibleTasks = filterTasks(allTasks, filter);
+  const visibleTasks = filterTasks(allTasks, filter, todayISODate);
   const goalTitleById = new Map((goals ?? []).map((g) => [g.id, g.title]));
 
   return (
@@ -178,12 +186,12 @@ export default async function TasksPage({
             />
           </label>
         </div>
-        <button
-          type="submit"
+        <SubmitButton
+          pendingLabel="Adding…"
           className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
         >
           Add task
-        </button>
+        </SubmitButton>
       </form>
 
       <nav aria-label="Task filters" className="mt-8 flex flex-wrap gap-2">

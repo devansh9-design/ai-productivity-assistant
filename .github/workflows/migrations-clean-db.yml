@@ -1,0 +1,79 @@
+name: Migrations apply cleanly
+
+on:
+  push:
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/ci-auth-schema-stub.sql"
+      - ".github/workflows/migrations-clean-db.yml"
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/ci-auth-schema-stub.sql"
+      - ".github/workflows/migrations-clean-db.yml"
+
+jobs:
+  clean-database-migration-check:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install postgresql-client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready && break
+            sleep 1
+          done
+
+      - name: Stub Supabase's auth schema (Fix 8)
+        run: psql -v ON_ERROR_STOP=1 -f scripts/ci-auth-schema-stub.sql
+
+      - name: Apply every migration in order (fails the job on any error)
+        run: |
+          set -e
+          for f in $(find supabase/migrations -maxdepth 1 -name '*.sql' | sort); do
+            echo "::group::Applying $f"
+            psql -v ON_ERROR_STOP=1 -f "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Confirm expected tables and triggers exist
+        run: |
+          psql -v ON_ERROR_STOP=1 -c "
+            select table_name from information_schema.tables
+            where table_schema = 'public'
+            order by table_name;
+          "
+          psql -v ON_ERROR_STOP=1 -c "
+            select trigger_name from information_schema.triggers
+            where trigger_schema = 'public'
+            order by trigger_name;
+          "
