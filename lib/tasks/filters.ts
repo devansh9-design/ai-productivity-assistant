@@ -1,5 +1,5 @@
 import type { Task } from "@/lib/types";
-import { addDaysToISODate } from "@/lib/tasks/timezone";
+import { addDaysToISODate, getTodayISODate } from "@/lib/tasks/timezone";
 
 export const TASK_FILTERS = ["inbox", "today", "due-soon", "overdue", "completed"] as const;
 export type TaskFilter = (typeof TASK_FILTERS)[number];
@@ -51,4 +51,57 @@ export function filterTasks(tasks: Task[], filter: TaskFilter, todayISODate: str
         return true;
     }
   });
+}
+
+const PRIORITY_RANK: Record<Task["priority"], number> = {
+  urgent: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
+/**
+ * "The day's work": every open task due today or earlier. Deliberately
+ * narrower than the Tasks page's Inbox filter (which includes tasks with no
+ * due date and tasks due far in the future) — the Today screen is about
+ * what should actually get worked today, not the entire backlog.
+ */
+export function getTodayTasks(tasks: Task[], todayISODate: string): Task[] {
+  return tasks.filter((task) => {
+    const isOpen = task.status !== "completed" && task.status !== "skipped" && task.status !== "deferred";
+    return isOpen && !!task.due_date && task.due_date <= todayISODate;
+  });
+}
+
+/**
+ * Ranks by priority first (urgent > high > medium > low), then by due date
+ * (earlier/more overdue first), then by creation order as a stable
+ * tie-breaker, and returns the top `limit`.
+ */
+export function getTopPriorities(tasks: Task[], limit = 3): Task[] {
+  return [...tasks]
+    .sort((a, b) => {
+      const byPriority = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+      if (byPriority !== 0) return byPriority;
+
+      const byDueDate = (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31");
+      if (byDueDate !== 0) return byDueDate;
+
+      return a.created_at.localeCompare(b.created_at);
+    })
+    .slice(0, limit);
+}
+
+/**
+ * Tasks completed today, in the user's timezone. Used for the progress
+ * summary and the "done today" list, so the day's work stays visible after
+ * it's finished instead of disappearing the moment a task is marked done.
+ */
+export function getCompletedToday(tasks: Task[], todayISODate: string, timeZone: string): Task[] {
+  return tasks.filter(
+    (task) =>
+      task.status === "completed" &&
+      !!task.completed_at &&
+      getTodayISODate(timeZone, new Date(task.completed_at)) === todayISODate,
+  );
 }

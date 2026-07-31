@@ -2,9 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/require-user";
-import type { TaskPriority, TaskStatus, EnergyLevel } from "@/lib/types";
+import { resolveTaskStatusUpdate } from "@/lib/tasks/status-update";
+import type { TaskPriority, EnergyLevel } from "@/lib/types";
 
-const STATUSES: TaskStatus[] = ["todo", "in_progress", "completed", "skipped", "deferred"];
 const PRIORITIES: TaskPriority[] = ["low", "medium", "high", "urgent"];
 const ENERGY_LEVELS: EnergyLevel[] = ["low", "medium", "high"];
 
@@ -51,22 +51,18 @@ export async function createTask(formData: FormData) {
 export async function updateTaskStatus(formData: FormData) {
   const { supabase, user } = await requireUser();
   const id = String(formData.get("id") ?? "");
+  if (!id) throw new Error("Missing task id.");
+
   const status = String(formData.get("status") ?? "");
-  if (!id || !STATUSES.includes(status as TaskStatus)) {
-    throw new Error("Invalid task status.");
-  }
+  const reason = optionalText(formData, "reason");
+  const actualMinutesRaw = formData.get("actual_minutes");
+  const update = resolveTaskStatusUpdate(
+    status,
+    reason,
+    actualMinutesRaw === null ? null : String(actualMinutesRaw),
+  );
 
-  const update: { status: TaskStatus; actual_minutes?: number | null } = {
-    status: status as TaskStatus,
-  };
-  const actualMinutes = optionalMinutes(formData, "actual_minutes");
-  if (actualMinutes !== null) update.actual_minutes = actualMinutes;
-
-  const { error } = await supabase
-    .from("tasks")
-    .update(update)
-    .eq("id", id)
-    .eq("user_id", user.id);
+  const { error } = await supabase.from("tasks").update(update).eq("id", id).eq("user_id", user.id);
   if (error) throw new Error(error.message);
 
   revalidatePath("/tasks");
