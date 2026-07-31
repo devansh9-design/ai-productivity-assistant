@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterTasks } from "./filters";
+import { filterTasks, getCompletedToday, getTodayTasks, getTopPriorities } from "./filters";
 import { addDaysToISODate, getTodayISODate } from "./timezone";
 import type { Task } from "@/lib/types";
 
@@ -21,6 +21,7 @@ function makeTask(overrides: Partial<Task>): Task {
     actual_minutes: null,
     due_date: null,
     energy_level: null,
+    status_reason: null,
     created_at: `${TODAY}T09:00:00.000Z`,
     updated_at: `${TODAY}T09:00:00.000Z`,
     completed_at: null,
@@ -125,5 +126,85 @@ describe("filterTasks timezone and calendar edge cases", () => {
   it("getTodayISODate falls back to UTC for an unrecognized timezone", () => {
     const now = new Date("2026-07-30T12:00:00.000Z");
     expect(getTodayISODate("Not/ARealZone", now)).toBe(getTodayISODate("UTC", now));
+  });
+});
+
+describe("getTodayTasks", () => {
+  const tasks: Task[] = [
+    makeTask({ id: "no-date", due_date: null }),
+    makeTask({ id: "today", due_date: "2026-07-30" }),
+    makeTask({ id: "overdue", due_date: "2026-07-20" }),
+    makeTask({ id: "future", due_date: "2026-08-05" }),
+    makeTask({ id: "completed-today", due_date: "2026-07-30", status: "completed" }),
+    makeTask({ id: "skipped-today", due_date: "2026-07-30", status: "skipped" }),
+    makeTask({ id: "deferred-today", due_date: "2026-07-30", status: "deferred" }),
+  ];
+
+  it("includes only open tasks due today or earlier", () => {
+    const result = getTodayTasks(tasks, "2026-07-30").map((t) => t.id);
+    expect(result).toEqual(["today", "overdue"]);
+  });
+
+  it("excludes tasks with no due date, future due dates, and non-open statuses", () => {
+    const result = getTodayTasks(tasks, "2026-07-30").map((t) => t.id);
+    expect(result).not.toContain("no-date");
+    expect(result).not.toContain("future");
+    expect(result).not.toContain("completed-today");
+    expect(result).not.toContain("skipped-today");
+    expect(result).not.toContain("deferred-today");
+  });
+});
+
+describe("getTopPriorities", () => {
+  it("ranks urgent > high > medium > low", () => {
+    const tasks: Task[] = [
+      makeTask({ id: "low", priority: "low" }),
+      makeTask({ id: "urgent", priority: "urgent" }),
+      makeTask({ id: "medium", priority: "medium" }),
+      makeTask({ id: "high", priority: "high" }),
+    ];
+    expect(getTopPriorities(tasks, 4).map((t) => t.id)).toEqual(["urgent", "high", "medium", "low"]);
+  });
+
+  it("breaks priority ties by earlier due date, then by creation order", () => {
+    const tasks: Task[] = [
+      makeTask({ id: "b", priority: "high", due_date: "2026-07-30", created_at: "2026-07-29T10:00:00.000Z" }),
+      makeTask({ id: "a", priority: "high", due_date: "2026-07-20", created_at: "2026-07-29T11:00:00.000Z" }),
+      makeTask({ id: "c", priority: "high", due_date: null, created_at: "2026-07-29T09:00:00.000Z" }),
+    ];
+    expect(getTopPriorities(tasks, 3).map((t) => t.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("limits to the requested count", () => {
+    const tasks: Task[] = [
+      makeTask({ id: "1", priority: "urgent" }),
+      makeTask({ id: "2", priority: "urgent" }),
+      makeTask({ id: "3", priority: "urgent" }),
+      makeTask({ id: "4", priority: "urgent" }),
+    ];
+    expect(getTopPriorities(tasks, 3)).toHaveLength(3);
+  });
+});
+
+describe("getCompletedToday", () => {
+  it("includes only completed tasks finished today in the given timezone", () => {
+    const tasks: Task[] = [
+      makeTask({ id: "done-today", status: "completed", completed_at: "2026-07-30T18:00:00.000Z" }),
+      makeTask({ id: "done-yesterday", status: "completed", completed_at: "2026-07-29T18:00:00.000Z" }),
+      makeTask({ id: "still-open", status: "todo", completed_at: null }),
+    ];
+    const result = getCompletedToday(tasks, "2026-07-30", "UTC").map((t) => t.id);
+    expect(result).toEqual(["done-today"]);
+  });
+
+  it("resolves 'today' in the caller's timezone, not UTC", () => {
+    // 2026-07-30 23:30 UTC is already 2026-07-31 in Tokyo (UTC+9).
+    const tasks: Task[] = [
+      makeTask({ id: "late-utc-completion", status: "completed", completed_at: "2026-07-30T23:30:00.000Z" }),
+    ];
+    expect(getCompletedToday(tasks, "2026-07-31", "Asia/Tokyo").map((t) => t.id)).toEqual([
+      "late-utc-completion",
+    ]);
+    expect(getCompletedToday(tasks, "2026-07-30", "Asia/Tokyo").map((t) => t.id)).toEqual([]);
   });
 });

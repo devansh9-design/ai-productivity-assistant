@@ -54,6 +54,7 @@ export interface Task {
   actual_minutes: number | null;
   due_date: string | null;
   energy_level: EnergyLevel | null;
+  status_reason: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;

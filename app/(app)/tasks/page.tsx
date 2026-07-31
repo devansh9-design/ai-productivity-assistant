@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { createTask, deleteTask, updateTaskStatus } from "@/lib/tasks/actions";
+import { createTask, deleteTask } from "@/lib/tasks/actions";
 import { StatusBadge, PriorityBadge, EmptyState } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
+import { TaskActionForm } from "@/components/task-action-form";
 import { TIMEZONE_COOKIE_NAME } from "@/components/timezone-sync";
 import { DEFAULT_TASK_FILTER, TASK_FILTERS, filterTasks, isTaskFilter, type TaskFilter } from "@/lib/tasks/filters";
 import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
@@ -245,56 +246,14 @@ export default async function TasksPage({
                   {task.estimated_minutes ? `${task.estimated_minutes} min estimated` : "No estimate"}
                   {task.actual_minutes ? ` · ${task.actual_minutes} min actual` : ""}
                 </p>
+                {task.status_reason && (task.status === "skipped" || task.status === "deferred") && (
+                  <p className="mt-1 text-xs text-amber-700">
+                    {task.status === "skipped" ? "Skipped" : "Deferred"}: {task.status_reason}
+                  </p>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                {task.status !== "completed" && (
-                  <form action={updateTaskStatus}>
-                    <input type="hidden" name="id" value={task.id} />
-                    <input type="hidden" name="status" value="completed" />
-                    <button
-                      type="submit"
-                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
-                    >
-                      Complete
-                    </button>
-                  </form>
-                )}
-                {task.status !== "skipped" && task.status !== "completed" && (
-                  <form action={updateTaskStatus}>
-                    <input type="hidden" name="id" value={task.id} />
-                    <input type="hidden" name="status" value="skipped" />
-                    <button
-                      type="submit"
-                      className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      Skip
-                    </button>
-                  </form>
-                )}
-                {task.status !== "deferred" && task.status !== "completed" && (
-                  <form action={updateTaskStatus}>
-                    <input type="hidden" name="id" value={task.id} />
-                    <input type="hidden" name="status" value="deferred" />
-                    <button
-                      type="submit"
-                      className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      Defer
-                    </button>
-                  </form>
-                )}
-                {task.status === "completed" && (
-                  <form action={updateTaskStatus}>
-                    <input type="hidden" name="id" value={task.id} />
-                    <input type="hidden" name="status" value="todo" />
-                    <button
-                      type="submit"
-                      className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      Reopen
-                    </button>
-                  </form>
-                )}
+                <TaskActionForm task={task} />
                 <form action={deleteTask}>
                   <input type="hidden" name="id" value={task.id} />
                   <button
