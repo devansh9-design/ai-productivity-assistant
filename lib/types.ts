@@ -59,3 +59,40 @@ export interface Task {
   updated_at: string;
   completed_at: string | null;
 }
+
+export type CheckinType = "morning" | "evening";
+
+export interface Checkin {
+  id: string;
+  user_id: string;
+  checkin_date: string;
+  type: CheckinType;
+  mood: number | null;
+  energy_level: EnergyLevel | null;
+  distractions: string | null;
+  wins: string | null;
+  lesson: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JournalEntry {
+  id: string;
+  user_id: string;
+  entry_date: string;
+  checkin_id: string | null;
+  reflection: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskSession {
+  id: string;
+  user_id: string;
+  task_id: string;
+  started_at: string;
+  ended_at: string | null;
+  minutes: number | null;
+  notes: string | null;
+  created_at: string;
+}
