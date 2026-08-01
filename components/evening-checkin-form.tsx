@@ -1,5 +1,7 @@
 import { saveEveningCheckin } from "@/lib/checkins/actions";
-import { SubmitButton } from "@/components/submit-button";
+import { ActionForm } from "@/components/action-form";
+import { ActionSubmitButton } from "@/components/action-submit-button";
+import { DISTRACTIONS_MAX_LENGTH, LESSON_MAX_LENGTH, REFLECTION_MAX_LENGTH, WINS_MAX_LENGTH } from "@/lib/checkins/validate";
 import type { Checkin, JournalEntry } from "@/lib/types";
 
 const MOOD_OPTIONS = [1, 2, 3, 4, 5] as const;
@@ -20,7 +22,7 @@ export function EveningCheckinForm({
       </summary>
       <p className="mt-2 text-sm text-slate-600">Close the day: how it went, and one thing to carry into tomorrow.</p>
 
-      <form action={saveEveningCheckin} className="mt-4 grid gap-4 sm:grid-cols-2">
+      <ActionForm action={saveEveningCheckin} className="mt-4 grid gap-4 sm:grid-cols-2" resetOnSuccess={false}>
         <fieldset className="sm:col-span-2">
           <legend className="text-sm font-medium text-slate-800">Mood</legend>
           <div className="mt-1 flex gap-2">
@@ -66,6 +68,7 @@ export function EveningCheckinForm({
             name="distractions"
             defaultValue={existingCheckin?.distractions ?? ""}
             placeholder="What pulled focus today?"
+            maxLength={DISTRACTIONS_MAX_LENGTH}
           />
         </label>
 
@@ -77,6 +80,7 @@ export function EveningCheckinForm({
             name="wins"
             defaultValue={existingCheckin?.wins ?? ""}
             placeholder="What went well?"
+            maxLength={WINS_MAX_LENGTH}
           />
         </label>
 
@@ -88,6 +92,7 @@ export function EveningCheckinForm({
             name="lesson"
             defaultValue={existingCheckin?.lesson ?? ""}
             placeholder="What would you do differently?"
+            maxLength={LESSON_MAX_LENGTH}
           />
         </label>
 
@@ -99,18 +104,18 @@ export function EveningCheckinForm({
             name="reflection"
             rows={3}
             required
-            maxLength={5000}
+            maxLength={REFLECTION_MAX_LENGTH}
             defaultValue={existingReflection?.reflection ?? ""}
             placeholder="Free-write about the day."
           />
         </label>
 
         <div className="sm:col-span-2">
-          <SubmitButton className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+          <ActionSubmitButton className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
             {alreadyCheckedIn ? "Update check-in" : "Save check-in"}
-          </SubmitButton>
+          </ActionSubmitButton>
         </div>
-      </form>
+      </ActionForm>
     </details>
   );
 }

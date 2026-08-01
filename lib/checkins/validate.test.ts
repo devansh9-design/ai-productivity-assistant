@@ -74,3 +74,45 @@ describe("resolveCheckinInput", () => {
     expect(result.wins).toBe("shipped part 1");
   });
 });
+
+describe("resolveCheckinInput length limits", () => {
+  it("rejects a reflection over 5000 characters with a friendly message", () => {
+    const tooLong = "a".repeat(5001);
+    expect(() => resolveCheckinInput(makeFormData({ reflection: tooLong }))).toThrow(
+      "Reflection must be 5000 characters or fewer.",
+    );
+  });
+
+  it("accepts a reflection at exactly the limit", () => {
+    const atLimit = "a".repeat(5000);
+    expect(() => resolveCheckinInput(makeFormData({ reflection: atLimit }))).not.toThrow();
+  });
+
+  it("rejects distractions over 2000 characters with a friendly message, not a raw DB error", () => {
+    const tooLong = "a".repeat(2001);
+    expect(() => resolveCheckinInput(makeFormData({ reflection: "ok", distractions: tooLong }))).toThrow(
+      "Distractions must be 2000 characters or fewer.",
+    );
+  });
+
+  it("rejects wins over 2000 characters", () => {
+    const tooLong = "a".repeat(2001);
+    expect(() => resolveCheckinInput(makeFormData({ reflection: "ok", wins: tooLong }))).toThrow(
+      "Wins must be 2000 characters or fewer.",
+    );
+  });
+
+  it("rejects lesson over 2000 characters", () => {
+    const tooLong = "a".repeat(2001);
+    expect(() => resolveCheckinInput(makeFormData({ reflection: "ok", lesson: tooLong }))).toThrow(
+      "Lesson must be 2000 characters or fewer.",
+    );
+  });
+
+  it("accepts distractions/wins/lesson at exactly the limit", () => {
+    const atLimit = "a".repeat(2000);
+    expect(() =>
+      resolveCheckinInput(makeFormData({ reflection: "ok", distractions: atLimit, wins: atLimit, lesson: atLimit })),
+    ).not.toThrow();
+  });
+});

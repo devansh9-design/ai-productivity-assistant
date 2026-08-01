@@ -2,7 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createMilestone, deleteMilestone, updateMilestoneStatus } from "@/lib/milestones/actions";
 import { StatusBadge, EmptyState } from "@/components/status-badge";
 import { StatusSelectForm } from "@/components/status-select-form";
-import { SubmitButton } from "@/components/submit-button";
+import { ActionForm } from "@/components/action-form";
+import { ActionSubmitButton } from "@/components/action-submit-button";
 import type { Milestone, Project } from "@/lib/types";
 
 const MILESTONE_STATUSES = ["active", "completed", "archived"] as const;
@@ -26,7 +27,7 @@ export default async function MilestonesPage() {
         Milestones mark meaningful checkpoints inside a project, each with its own due date.
       </p>
 
-      <form action={createMilestone} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+      <ActionForm action={createMilestone} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">New milestone</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="block text-sm font-medium text-slate-800 sm:col-span-2" htmlFor="milestone-title">
@@ -74,13 +75,13 @@ export default async function MilestonesPage() {
             />
           </label>
         </div>
-        <SubmitButton
+        <ActionSubmitButton
           pendingLabel="Adding…"
           className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
         >
           Add milestone
-        </SubmitButton>
-      </form>
+        </ActionSubmitButton>
+      </ActionForm>
 
       <div className="mt-8 space-y-3">
         {error && (

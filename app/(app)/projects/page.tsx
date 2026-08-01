@@ -2,7 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createProject, deleteProject, updateProjectStatus } from "@/lib/projects/actions";
 import { StatusBadge, EmptyState } from "@/components/status-badge";
 import { StatusSelectForm } from "@/components/status-select-form";
-import { SubmitButton } from "@/components/submit-button";
+import { ActionForm } from "@/components/action-form";
+import { ActionSubmitButton } from "@/components/action-submit-button";
 import type { Goal, Project } from "@/lib/types";
 
 const PROJECT_STATUSES = ["active", "completed", "archived"] as const;
@@ -26,7 +27,7 @@ export default async function ProjectsPage() {
         Projects sit under a goal and group the milestones and tasks that move it forward.
       </p>
 
-      <form action={createProject} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+      <ActionForm action={createProject} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">New project</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="block text-sm font-medium text-slate-800 sm:col-span-2" htmlFor="project-title">
@@ -65,13 +66,13 @@ export default async function ProjectsPage() {
             />
           </label>
         </div>
-        <SubmitButton
+        <ActionSubmitButton
           pendingLabel="Adding…"
           className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
         >
           Add project
-        </SubmitButton>
-      </form>
+        </ActionSubmitButton>
+      </ActionForm>
 
       <div className="mt-8 space-y-3">
         {error && (
