@@ -6,6 +6,9 @@ export type TaskPriority = "low" | "medium" | "high" | "urgent";
 
 export type EnergyLevel = "low" | "medium" | "high";
 
+export type AvailabilityRuleKind = "working" | "high_focus" | "sleep" | "meal" | "travel" | "break";
+export type PlanBlockKind = "task" | "buffer";
+
 export interface Goal {
   id: string;
   user_id: string;
@@ -50,6 +53,9 @@ export interface Task {
   category: string | null;
   status: TaskStatus;
   priority: TaskPriority;
+  urgency: number;
+  impact: number;
+  must_do: boolean;
   estimated_minutes: number | null;
   actual_minutes: number | null;
   due_date: string | null;
@@ -94,5 +100,59 @@ export interface TaskSession {
   ended_at: string | null;
   minutes: number | null;
   notes: string | null;
+  created_at: string;
+}
+
+export interface AvailabilityRule {
+  id: string;
+  user_id: string;
+  weekday: number;
+  kind: AvailabilityRuleKind;
+  start_time: string;
+  end_time: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FixedCommitment {
+  id: string;
+  user_id: string;
+  commitment_date: string;
+  title: string;
+  start_time: string;
+  end_time: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DailyPlan {
+  id: string;
+  user_id: string;
+  plan_date: string;
+  buffer_minutes: number;
+  generated_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlanBlock {
+  id: string;
+  user_id: string;
+  daily_plan_id: string;
+  task_id: string | null;
+  kind: PlanBlockKind;
+  title: string;
+  start_time: string;
+  end_time: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlanUnscheduledTask {
+  id: string;
+  user_id: string;
+  daily_plan_id: string;
+  task_id: string;
+  reason: string;
   created_at: string;
 }
