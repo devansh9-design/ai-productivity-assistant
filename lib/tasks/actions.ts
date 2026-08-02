@@ -3,10 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/require-user";
 import { resolveTaskStatusUpdate } from "@/lib/tasks/status-update";
+import { buildTaskSchedulingMetadataUpdate } from "@/lib/tasks/scheduling-metadata";
 import type { TaskPriority, EnergyLevel } from "@/lib/types";
 
 const PRIORITIES: TaskPriority[] = ["low", "medium", "high", "urgent"];
 const ENERGY_LEVELS: EnergyLevel[] = ["low", "medium", "high"];
+
+function scoreValue(formData: FormData, key: string) {
+  const parsed = Number.parseInt(String(formData.get(key) ?? ""), 10);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 5 ? parsed : 3;
+}
 
 function optionalText(formData: FormData, key: string) {
   const value = String(formData.get(key) ?? "").trim();
@@ -34,6 +40,9 @@ export async function createTask(formData: FormData) {
     description: optionalText(formData, "description"),
     category: optionalText(formData, "category"),
     priority: PRIORITIES.includes(priority as TaskPriority) ? priority : "medium",
+    urgency: scoreValue(formData, "urgency"),
+    impact: scoreValue(formData, "impact"),
+    must_do: formData.get("must_do") === "on",
     energy_level:
       energyLevel && ENERGY_LEVELS.includes(energyLevel as EnergyLevel) ? energyLevel : null,
     estimated_minutes: optionalMinutes(formData, "estimated_minutes"),
@@ -63,6 +72,22 @@ export async function updateTaskStatus(formData: FormData) {
   );
 
   const { error } = await supabase.from("tasks").update(update).eq("id", id).eq("user_id", user.id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/tasks");
+  revalidatePath("/today");
+}
+
+export async function updateTaskSchedulingMetadata(formData: FormData) {
+  const { supabase, user } = await requireUser();
+  const id = String(formData.get("id") ?? "");
+  if (!id) throw new Error("Missing task id.");
+
+  const { error } = await supabase
+    .from("tasks")
+    .update(buildTaskSchedulingMetadataUpdate(formData))
+    .eq("id", id)
+    .eq("user_id", user.id);
   if (error) throw new Error(error.message);
 
   revalidatePath("/tasks");
