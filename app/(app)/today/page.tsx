@@ -3,12 +3,17 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { StatusBadge, PriorityBadge, EmptyState } from "@/components/status-badge";
 import { TaskActionForm } from "@/components/task-action-form";
+import { TaskTimer } from "@/components/task-timer";
+import { EveningCheckinForm } from "@/components/evening-checkin-form";
+import { RecentReflections } from "@/components/recent-reflections";
 import { TIMEZONE_COOKIE_NAME } from "@/components/timezone-sync";
 import { getCompletedToday, getTodayTasks, getTopPriorities } from "@/lib/tasks/filters";
 import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
-import type { Task } from "@/lib/types";
+import type { Checkin, JournalEntry, Task, TaskSession } from "@/lib/types";
 
-function TaskRow({ task }: { task: Task }) {
+const RECENT_REFLECTIONS_LIMIT = 7;
+
+function TaskRow({ task, activeSession }: { task: Task; activeSession: TaskSession | null }) {
   return (
     <article className="rounded-2xl border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -29,6 +34,11 @@ function TaskRow({ task }: { task: Task }) {
               {task.status === "skipped" ? "Skipped" : "Deferred"}: {task.status_reason}
             </p>
           )}
+          {task.status !== "completed" && (
+            <div className="mt-2">
+              <TaskTimer taskId={task.id} activeSession={activeSession} />
+            </div>
+          )}
         </div>
         <TaskActionForm task={task} />
       </div>
@@ -42,11 +52,37 @@ export default async function TodayPage() {
   const todayISODate = getTodayISODate(timeZone);
 
   const supabase = await createClient();
-  const { data: tasks, error } = await supabase
-    .from("tasks")
-    .select("*")
-    .order("due_date", { ascending: true })
-    .returns<Task[]>();
+  const [
+    { data: tasks, error: tasksError },
+    { data: activeSessions },
+    { data: todayCheckin },
+    { data: todayJournalEntry },
+    { data: recentJournalEntries },
+    { data: recentCheckins },
+  ] = await Promise.all([
+    supabase.from("tasks").select("*").order("due_date", { ascending: true }).returns<Task[]>(),
+    supabase.from("task_sessions").select("*").is("ended_at", null).returns<TaskSession[]>(),
+    supabase
+      .from("checkins")
+      .select("*")
+      .eq("checkin_date", todayISODate)
+      .eq("type", "evening")
+      .maybeSingle<Checkin>(),
+    supabase.from("journal_entries").select("*").eq("entry_date", todayISODate).maybeSingle<JournalEntry>(),
+    supabase
+      .from("journal_entries")
+      .select("*")
+      .order("entry_date", { ascending: false })
+      .limit(RECENT_REFLECTIONS_LIMIT)
+      .returns<JournalEntry[]>(),
+    supabase
+      .from("checkins")
+      .select("*")
+      .eq("type", "evening")
+      .order("checkin_date", { ascending: false })
+      .limit(RECENT_REFLECTIONS_LIMIT)
+      .returns<Checkin[]>(),
+  ]);
 
   const allTasks = tasks ?? [];
   const todayTasks = getTodayTasks(allTasks, todayISODate);
@@ -57,6 +93,9 @@ export default async function TodayPage() {
 
   const totalToday = todayTasks.length + completedToday.length;
   const progressPercent = totalToday === 0 ? 0 : Math.round((completedToday.length / totalToday) * 100);
+
+  const activeSessionByTaskId = new Map((activeSessions ?? []).map((session) => [session.task_id, session]));
+  const checkinsByDate = new Map((recentCheckins ?? []).map((checkin) => [checkin.checkin_date, checkin]));
 
   const formattedDate = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -72,13 +111,13 @@ export default async function TodayPage() {
         Today
       </h1>
 
-      {error && (
+      {tasksError && (
         <p role="alert" className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          Could not load today&apos;s tasks: {error.message}
+          Could not load today&apos;s tasks: {tasksError.message}
         </p>
       )}
 
-      {!error && totalToday === 0 && (
+      {!tasksError && totalToday === 0 && (
         <div className="mt-6">
           <EmptyState
             title="Nothing scheduled for today"
@@ -95,7 +134,7 @@ export default async function TodayPage() {
         </div>
       )}
 
-      {!error && totalToday > 0 && (
+      {!tasksError && totalToday > 0 && (
         <>
           <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
             <div className="flex items-center justify-between text-sm font-medium text-slate-700">
@@ -118,7 +157,7 @@ export default async function TodayPage() {
               <p className="mt-1 text-sm text-slate-600">The highest-priority work due today or overdue.</p>
               <div className="mt-4 space-y-3">
                 {topPriorities.map((task) => (
-                  <TaskRow key={task.id} task={task} />
+                  <TaskRow key={task.id} task={task} activeSession={activeSessionByTaskId.get(task.id) ?? null} />
                 ))}
               </div>
             </div>
@@ -129,7 +168,7 @@ export default async function TodayPage() {
               <h2 className="text-lg font-semibold text-slate-900">Also today</h2>
               <div className="mt-4 space-y-3">
                 {restOfToday.map((task) => (
-                  <TaskRow key={task.id} task={task} />
+                  <TaskRow key={task.id} task={task} activeSession={activeSessionByTaskId.get(task.id) ?? null} />
                 ))}
               </div>
             </div>
@@ -140,13 +179,16 @@ export default async function TodayPage() {
               <h2 className="text-lg font-semibold text-slate-900">Done today</h2>
               <div className="mt-4 space-y-3">
                 {completedToday.map((task) => (
-                  <TaskRow key={task.id} task={task} />
+                  <TaskRow key={task.id} task={task} activeSession={null} />
                 ))}
               </div>
             </div>
           )}
         </>
       )}
+
+      <EveningCheckinForm existingCheckin={todayCheckin ?? null} existingReflection={todayJournalEntry ?? null} />
+      <RecentReflections entries={recentJournalEntries ?? []} checkinsByDate={checkinsByDate} />
     </section>
   );
 }

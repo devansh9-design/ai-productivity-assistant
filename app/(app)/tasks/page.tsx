@@ -3,7 +3,8 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createTask, deleteTask } from "@/lib/tasks/actions";
 import { StatusBadge, PriorityBadge, EmptyState } from "@/components/status-badge";
-import { SubmitButton } from "@/components/submit-button";
+import { ActionForm } from "@/components/action-form";
+import { ActionSubmitButton } from "@/components/action-submit-button";
 import { TaskActionForm } from "@/components/task-action-form";
 import { TIMEZONE_COOKIE_NAME } from "@/components/timezone-sync";
 import { DEFAULT_TASK_FILTER, TASK_FILTERS, filterTasks, isTaskFilter, type TaskFilter } from "@/lib/tasks/filters";
@@ -50,7 +51,7 @@ export default async function TasksPage({
       </h1>
       <p className="mt-2 max-w-lg text-slate-600">Every task can link to a goal, project, and milestone.</p>
 
-      <form action={createTask} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+      <ActionForm action={createTask} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">New task</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="block text-sm font-medium text-slate-800 sm:col-span-2" htmlFor="task-title">
@@ -187,13 +188,13 @@ export default async function TasksPage({
             />
           </label>
         </div>
-        <SubmitButton
+        <ActionSubmitButton
           pendingLabel="Adding…"
           className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
         >
           Add task
-        </SubmitButton>
-      </form>
+        </ActionSubmitButton>
+      </ActionForm>
 
       <nav aria-label="Task filters" className="mt-8 flex flex-wrap gap-2">
         {TASK_FILTERS.map((option) => (
