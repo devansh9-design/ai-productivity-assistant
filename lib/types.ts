@@ -8,6 +8,7 @@ export type EnergyLevel = "low" | "medium" | "high";
 
 export type AvailabilityRuleKind = "working" | "high_focus" | "sleep" | "meal" | "travel" | "break";
 export type PlanBlockKind = "task" | "buffer";
+export type PlanStatus = "draft" | "confirmed" | "superseded" | "completed";
 
 export interface Goal {
   id: string;
@@ -131,6 +132,9 @@ export interface DailyPlan {
   plan_date: string;
   buffer_minutes: number;
   generated_at: string;
+  status: PlanStatus;
+  version: number;
+  parent_plan_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -144,6 +148,8 @@ export interface PlanBlock {
   title: string;
   start_time: string;
   end_time: string;
+  sort_order: number;
+  is_manual: boolean;
   created_at: string;
   updated_at: string;
 }
