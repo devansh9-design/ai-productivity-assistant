@@ -11,12 +11,12 @@ import { ActionSubmitButton } from "@/components/action-submit-button";
 import { TIMEZONE_COOKIE_NAME } from "@/components/timezone-sync";
 import { getCompletedToday, getTodayTasks, getTopPriorities } from "@/lib/tasks/filters";
 import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
-import { generateTodayPlan } from "@/lib/scheduler/actions";
+import { generateDraftPlan } from "@/lib/plans/actions";
+import { PlanTimeline } from "@/components/plan-timeline";
+import { PlanHistory } from "@/components/plan-history";
 import type { Checkin, DailyPlan, FixedCommitment, JournalEntry, PlanBlock, PlanUnscheduledTask, Task, TaskSession } from "@/lib/types";
 
 const RECENT_REFLECTIONS_LIMIT = 7;
-
-function shortTime(value: string) { return value.slice(0, 5); }
 
 function TaskRow({ task, activeSession }: { task: Task; activeSession: TaskSession | null }) {
   return (
@@ -64,7 +64,7 @@ export default async function TodayPage() {
     { data: todayJournalEntry },
     { data: recentJournalEntries },
     { data: recentCheckins },
-    { data: dailyPlan },
+    { data: allPlans },
     { data: fixedCommitments },
   ] = await Promise.all([
     supabase.from("tasks").select("*").order("due_date", { ascending: true }).returns<Task[]>(),
@@ -89,16 +89,34 @@ export default async function TodayPage() {
       .order("checkin_date", { ascending: false })
       .limit(RECENT_REFLECTIONS_LIMIT)
       .returns<Checkin[]>(),
-    supabase.from("daily_plans").select("*").eq("plan_date", todayISODate).maybeSingle<DailyPlan>(),
+    supabase.from("daily_plans").select("*").eq("plan_date", todayISODate).order("version", { ascending: false }).returns<DailyPlan[]>(),
     supabase.from("fixed_commitments").select("*").eq("commitment_date", todayISODate).order("start_time").returns<FixedCommitment[]>(),
   ]);
 
-  const [{ data: planBlocks }, { data: unscheduledTasks }] = dailyPlan
+  const plans = allPlans ?? [];
+  const activePlan = plans.find((p) => p.status === "draft" || p.status === "confirmed") ?? null;
+  const historyPlans = plans.filter((p) => p.status === "superseded" || p.status === "completed");
+  const planIds = plans.map((p) => p.id);
+
+  const [{ data: allBlocks }, { data: allUnscheduled }] = planIds.length > 0
     ? await Promise.all([
-        supabase.from("plan_blocks").select("*").eq("daily_plan_id", dailyPlan.id).order("start_time").returns<PlanBlock[]>(),
-        supabase.from("plan_unscheduled_tasks").select("*").eq("daily_plan_id", dailyPlan.id).returns<PlanUnscheduledTask[]>(),
+        supabase.from("plan_blocks").select("*").in("daily_plan_id", planIds).order("start_time").returns<PlanBlock[]>(),
+        supabase.from("plan_unscheduled_tasks").select("*").in("daily_plan_id", planIds).returns<PlanUnscheduledTask[]>(),
       ])
     : [{ data: [] as PlanBlock[] }, { data: [] as PlanUnscheduledTask[] }];
+
+  const blocksByPlan = new Map<string, PlanBlock[]>();
+  const unscheduledByPlan = new Map<string, PlanUnscheduledTask[]>();
+  for (const b of allBlocks ?? []) {
+    const list = blocksByPlan.get(b.daily_plan_id) ?? [];
+    list.push(b);
+    blocksByPlan.set(b.daily_plan_id, list);
+  }
+  for (const u of allUnscheduled ?? []) {
+    const list = unscheduledByPlan.get(u.daily_plan_id) ?? [];
+    list.push(u);
+    unscheduledByPlan.set(u.daily_plan_id, list);
+  }
 
   const allTasks = tasks ?? [];
   const todayTasks = getTodayTasks(allTasks, todayISODate);
@@ -129,16 +147,27 @@ export default async function TodayPage() {
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div><h2 className="text-lg font-semibold text-slate-900">Daily schedule</h2><p className="mt-1 text-sm text-slate-600">{dailyPlan ? `Generated plan with ${dailyPlan.buffer_minutes} minutes of protected buffer.` : "Generate a deterministic plan from your settings, commitments, and open tasks."}</p></div>
-          <ActionForm action={generateTodayPlan} resetOnSuccess={false}><ActionSubmitButton pendingLabel="Generating..." className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">{dailyPlan ? "Regenerate plan" : "Generate plan"}</ActionSubmitButton></ActionForm>
+          <div><h2 className="text-lg font-semibold text-slate-900">Daily schedule</h2><p className="mt-1 text-sm text-slate-600">{activePlan ? `Plan v${activePlan.version} with ${activePlan.buffer_minutes} minutes of protected buffer.` : "Generate a deterministic plan from your settings, commitments, and open tasks."}</p></div>
+          <ActionForm action={generateDraftPlan} resetOnSuccess={false}><ActionSubmitButton pendingLabel="Generating..." className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">{activePlan ? "Regenerate plan" : "Generate plan"}</ActionSubmitButton></ActionForm>
         </div>
-        {dailyPlan && <div className="mt-4 space-y-2">
-          {(fixedCommitments ?? []).map((commitment) => <div key={commitment.id} className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700"><span className="font-semibold">{shortTime(commitment.start_time)}-{shortTime(commitment.end_time)}</span> Fixed: {commitment.title}</div>)}
-          {(planBlocks ?? []).map((block) => <div key={block.id} className={`rounded-lg px-3 py-2 text-sm ${block.kind === "buffer" ? "bg-amber-50 text-amber-800" : "bg-indigo-50 text-indigo-800"}`}><span className="font-semibold">{shortTime(block.start_time)}-{shortTime(block.end_time)}</span> {block.kind === "buffer" ? "Buffer" : block.title}</div>)}
-          {(planBlocks ?? []).length === 0 && <p className="text-sm text-slate-600">No task blocks fit this day. Review availability and commitments in Settings.</p>}
-          {(unscheduledTasks ?? []).length > 0 && <div className="pt-2"><h3 className="text-sm font-semibold text-slate-900">Not scheduled</h3>{(unscheduledTasks ?? []).map((item) => <p key={item.id} className="mt-1 text-sm text-slate-600"><span className="font-medium text-slate-800">{allTasks.find((task) => task.id === item.task_id)?.title ?? "Task"}:</span> {item.reason}</p>)}</div>}
-        </div>}
       </div>
+
+      {activePlan && (
+        <PlanTimeline
+          plan={activePlan}
+          blocks={blocksByPlan.get(activePlan.id) ?? []}
+          unscheduledTasks={unscheduledByPlan.get(activePlan.id) ?? []}
+          allTasks={allTasks}
+          fixedCommitments={fixedCommitments ?? []}
+        />
+      )}
+
+      <PlanHistory
+        entries={historyPlans.map((plan) => ({
+          plan,
+          blocks: blocksByPlan.get(plan.id) ?? [],
+        }))}
+      />
 
       {tasksError && (
         <p role="alert" className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">

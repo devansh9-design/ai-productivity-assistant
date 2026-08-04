@@ -71,6 +71,7 @@ export async function deleteFixedCommitment(formData: FormData) {
   revalidatePath("/today");
 }
 
+/** @deprecated Use generateDraftPlan from lib/plans/actions.ts for Day 5+ workflow. */
 export async function generateTodayPlan() {
   const { supabase, user } = await requireUser();
   const cookieStore = await cookies();
