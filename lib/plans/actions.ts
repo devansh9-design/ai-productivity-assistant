@@ -3,13 +3,15 @@
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/require-user";
-import { TIMEZONE_COOKIE_NAME } from "@/components/timezone-sync";
+import { TIMEZONE_COOKIE_NAME } from "@/lib/tasks/timezone";
 import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
 import {
   type AvailabilityRuleInput,
   type FixedCommitmentInput,
 } from "@/lib/scheduler/engine";
 import { buildDraftPlan, type ExistingManualBlock } from "@/lib/plans/planner";
+import { getValidAccessToken } from "@/lib/google/oauth";
+import { fetchCalendarEvents } from "@/lib/google/calendar";
 import type { DailyPlan, PlanBlock, Task } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -59,12 +61,13 @@ export async function generateDraftPlan() {
       .maybeSingle<DailyPlan>(),
   ]);
   if (rulesError || commitmentsError || tasksError)
-    throw new Error(
-      rulesError?.message ??
+    return {
+      error:
+        rulesError?.message ??
         commitmentsError?.message ??
         tasksError?.message ??
         "Could not load scheduling data.",
-    );
+    };
 
   // Collect manual blocks from an existing *draft* only.
   // Confirmed plans get superseded; their blocks are not reused.
@@ -80,7 +83,8 @@ export async function generateDraftPlan() {
     manualBlocks = (blocks ?? []).map((b) => ({
       id: b.id,
       task_id: b.task_id,
-      kind: b.kind,
+      // Calendar blocks are never is_manual=true, so this cast is safe
+      kind: b.kind as "task" | "buffer",
       title: b.title,
       start_time: b.start_time,
       end_time: b.end_time,
@@ -120,6 +124,52 @@ export async function generateDraftPlan() {
     createdAt: task.created_at,
   }));
 
+  // ---------------------------------------------------------------------------
+  // Fetch calendar events (Day 6)
+  // ---------------------------------------------------------------------------
+
+  const tokenResult = await getValidAccessToken(user.id);
+
+  let calendarEvents: { googleEventId: string; title: string; startTime: string; endTime: string }[] = [];
+
+  if ("error" in tokenResult) {
+    if (tokenResult.error === "reconnect_required") {
+      return {
+        error: "Google Calendar credentials are no longer valid. Please reconnect Google Calendar in Settings.",
+      };
+    }
+    if (tokenResult.error === "calendar_sync_failed") {
+      return { error: "Could not sync Google Calendar events. Please try again." };
+    }
+    // "not_connected" → proceed without calendar events
+  } else {
+    // If the calendar is connected, we MUST have a valid user timezone to schedule events correctly.
+    // Falling back to UTC would schedule local events in UTC and block the wrong hours.
+    const tzCookie = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value;
+    if (!tzCookie) {
+      return {
+        error: "Timezone could not be determined. Please refresh the page to sync your timezone.",
+      };
+    }
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: tzCookie });
+    } catch {
+      return {
+        error: "Invalid timezone detected. Please refresh the page to sync your timezone.",
+      };
+    }
+
+    try {
+      calendarEvents = await fetchCalendarEvents(
+        tokenResult.token,
+        planDate,
+        tzCookie, // Always use the explicitly validated timezone, not the DEFAULT_TIMEZONE fallback
+      );
+    } catch {
+      return { error: "Could not sync Google Calendar events. Please try again." };
+    }
+  }
+
   // Run pure planner orchestrator
   const planResult = buildDraftPlan({
     date: planDate,
@@ -128,6 +178,7 @@ export async function generateDraftPlan() {
     fixedCommitments,
     tasks: engineTasks,
     existingManualBlocks: manualBlocks,
+    calendarEvents,
   });
 
   const { data: plan, error: planError } = await supabase
@@ -151,8 +202,9 @@ export async function generateDraftPlan() {
       })),
     })
     .single<DailyPlan>();
-  if (planError || !plan)
-    throw new Error(planError?.message ?? "Could not save draft plan.");
+  if (planError || !plan) {
+    return { error: planError?.message ?? "Could not save draft plan." };
+  }
   revalidatePath("/today");
 }
 

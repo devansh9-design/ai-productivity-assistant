@@ -187,3 +187,110 @@ describe("buildDraftPlan - Day 5 Plan Workflow", () => {
     expect((block?.startTime ?? "") >= "10:00:00").toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Day 6: Calendar integration tests
+// ---------------------------------------------------------------------------
+
+describe("buildDraftPlan - Calendar Integration", () => {
+  it("calendar events block task placement and appear as calendar-kind blocks", () => {
+    const result = buildDraftPlan(
+      baseInput({
+        tasks: [baseTask({ id: "task-1", title: "Task 1", estimatedMinutes: 60 })],
+        calendarEvents: [
+          {
+            googleEventId: "gcal-1",
+            title: "Team Standup",
+            startTime: "09:00",
+            endTime: "09:30",
+          },
+        ],
+      }),
+    );
+
+    // Calendar block should be in the output
+    const calBlock = result.blocks.find((b) => b.kind === "calendar");
+    expect(calBlock).toBeDefined();
+    expect(calBlock?.title).toBe("Team Standup");
+    expect(calBlock?.startTime).toBe("09:00:00");
+    expect(calBlock?.endTime).toBe("09:30:00");
+    expect(calBlock?.isManual).toBe(false);
+
+    // Task should be placed after the calendar event
+    const taskBlock = result.blocks.find((b) => b.taskId === "task-1");
+    expect(taskBlock).toBeDefined();
+    expect((taskBlock?.startTime ?? "") >= "09:30:00").toBe(true);
+  });
+
+  it("calendar events reduce available minutes and buffer", () => {
+    // 09:00 - 14:00 = 300 min working. Calendar event 09:00-10:00 = 60 min blocked.
+    // Available = 240 min. Buffer = 20% of 240 = 48 min.
+    const result = buildDraftPlan(
+      baseInput({
+        tasks: [],
+        calendarEvents: [
+          {
+            googleEventId: "gcal-1",
+            title: "Long Meeting",
+            startTime: "09:00",
+            endTime: "10:00",
+          },
+        ],
+      }),
+    );
+
+    expect(result.availableMinutes).toBe(240);
+    expect(result.bufferMinutes).toBe(48);
+  });
+
+  it("invalidates manual blocks that overlap with calendar events", () => {
+    const result = buildDraftPlan(
+      baseInput({
+        tasks: [baseTask({ id: "task-1", title: "Task 1", estimatedMinutes: 60 })],
+        calendarEvents: [
+          {
+            googleEventId: "gcal-1",
+            title: "Client Call",
+            startTime: "09:00",
+            endTime: "10:00",
+          },
+        ],
+        existingManualBlocks: [
+          {
+            id: "mb-1",
+            task_id: "task-1",
+            kind: "task",
+            title: "Task 1",
+            start_time: "09:30:00",
+            end_time: "10:30:00",
+            is_manual: true,
+          },
+        ],
+      }),
+    );
+
+    // Manual block overlaps with calendar event, so it should be invalidated
+    // The task should be re-placed by the engine after the calendar event
+    const taskBlock = result.blocks.find((b) => b.taskId === "task-1");
+    expect(taskBlock).toBeDefined();
+    expect(taskBlock?.isManual).toBe(false);
+    expect((taskBlock?.startTime ?? "") >= "10:00:00").toBe(true);
+  });
+
+  it("generates a normal plan with no calendar events", () => {
+    const result = buildDraftPlan(
+      baseInput({
+        tasks: [baseTask({ id: "task-1", title: "Task 1", estimatedMinutes: 60 })],
+        calendarEvents: [],
+      }),
+    );
+
+    // No calendar blocks
+    expect(result.blocks.filter((b) => b.kind === "calendar")).toHaveLength(0);
+    // Task should still be placed
+    expect(result.blocks.find((b) => b.taskId === "task-1")).toBeDefined();
+    // Buffer/available should be the baseline (300 min, 60 buffer)
+    expect(result.availableMinutes).toBe(300);
+    expect(result.bufferMinutes).toBe(60);
+  });
+});

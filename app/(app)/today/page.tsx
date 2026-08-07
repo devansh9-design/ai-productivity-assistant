@@ -8,7 +8,7 @@ import { EveningCheckinForm } from "@/components/evening-checkin-form";
 import { RecentReflections } from "@/components/recent-reflections";
 import { ActionForm } from "@/components/action-form";
 import { ActionSubmitButton } from "@/components/action-submit-button";
-import { TIMEZONE_COOKIE_NAME } from "@/components/timezone-sync";
+import { TIMEZONE_COOKIE_NAME } from "@/lib/tasks/timezone";
 import { getCompletedToday, getTodayTasks, getTopPriorities } from "@/lib/tasks/filters";
 import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
 import { generateDraftPlan } from "@/lib/plans/actions";

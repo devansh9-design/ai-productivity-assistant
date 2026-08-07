@@ -42,3 +42,4 @@ export function addDaysToISODate(isoDate: string, days: number): string {
 }
 
 export const DEFAULT_TIMEZONE = "UTC";
+export const TIMEZONE_COOKIE_NAME = "tz";
