@@ -7,6 +7,14 @@ function shortTime(value: string) {
   return value.slice(0, 5);
 }
 
+function generatedTime(value: string) {
+  return new Date(value).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 interface PlanHistoryEntry {
   plan: DailyPlan;
   blocks: PlanBlock[];
@@ -16,7 +24,7 @@ interface PlanHistoryProps {
   entries: PlanHistoryEntry[];
 }
 
-export function PlanHistory({ entries }: PlanHistoryProps) {
+export function PlanHistory({ entries }: PlanHistoryEntry[]) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (entries.length === 0) return null;
@@ -41,7 +49,7 @@ export function PlanHistory({ entries }: PlanHistoryProps) {
               >
                 <span>
                   v{plan.version} &mdash; {statusLabel} &mdash;{" "}
-                  {new Date(plan.generated_at).toLocaleTimeString()}
+                  {generatedTime(plan.generated_at)}
                 </span>
                 <span className="text-xs text-slate-400">
                   {isExpanded ? "\u25B2" : "\u25BC"}
