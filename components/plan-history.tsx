@@ -24,7 +24,7 @@ interface PlanHistoryProps {
   entries: PlanHistoryEntry[];
 }
 
-export function PlanHistory({ entries }: PlanHistoryEntry[]) {
+export function PlanHistory({ entries }: PlanHistoryProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (entries.length === 0) return null;
