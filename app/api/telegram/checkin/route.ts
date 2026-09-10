@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { resolveCheckinInput } from "@/lib/checkins/validate";
 import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
 
 export const runtime = "nodejs";
@@ -9,7 +8,6 @@ function normalizeEnergy(value: string | null | undefined) {
   if (!value) return null;
   const normalized = value.trim().toLowerCase();
   if (["low", "medium", "high"].includes(normalized)) return normalized;
-
   const rating = Number.parseInt(normalized, 10);
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) return null;
   if (rating <= 2) return "low";
@@ -17,12 +15,11 @@ function normalizeEnergy(value: string | null | undefined) {
   return "high";
 }
 
-/**
- * Receives a parsed Telegram evening check-in from n8n.
- * Authentication is handled by a shared webhook secret. The actual database
- * write is performed by a Supabase SECURITY DEFINER RPC so this endpoint
- * does not require the server-only service-role key.
- */
+function text(value: unknown) {
+  const v = String(value ?? "").trim();
+  return v || null;
+}
+
 export async function POST(request: NextRequest) {
   const secret = process.env.TELEGRAM_CHECKIN_WEBHOOK_SECRET;
   const suppliedSecret = request.headers.get("x-telegram-checkin-secret");
@@ -31,17 +28,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: {
-    chat_id?: number | string;
-    mood?: number | string | null;
-    energy_level?: string | number | null;
-    distractions?: string | null;
-    wins?: string | null;
-    lesson?: string | null;
-    reflection?: string | null;
-    time_zone?: string | null;
-  };
-
+  let body: Record<string, unknown>;
   try {
     body = await request.json();
   } catch {
@@ -63,48 +50,50 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const supabase = createClient(supabaseUrl, publishableKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-
-  const formData = new FormData();
-  formData.set("reflection", String(body.reflection ?? ""));
-  if (body.mood !== null && body.mood !== undefined) {
-    formData.set("mood", String(body.mood));
+  const moodRaw = body.mood === null || body.mood === undefined ? "" : String(body.mood).trim();
+  let mood: number | null = null;
+  if (moodRaw) {
+    const parsed = Number.parseInt(moodRaw, 10);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 5) {
+      return NextResponse.json({ error: "Mood must be a number from 1 to 5." }, { status: 400 });
+    }
+    mood = parsed;
   }
 
-  const energy = normalizeEnergy(
+  const energyLevel = normalizeEnergy(
     body.energy_level === null || body.energy_level === undefined
       ? null
       : String(body.energy_level),
   );
-  if (energy) formData.set("energy_level", energy);
-  if (body.distractions) formData.set("distractions", body.distractions);
-  if (body.wins) formData.set("wins", body.wins);
-  if (body.lesson) formData.set("lesson", body.lesson);
 
-  let input;
-  try {
-    input = resolveCheckinInput(formData);
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Invalid check-in" },
-      { status: 400 },
-    );
+  const distractions = text(body.distractions);
+  const wins = text(body.wins);
+  const lesson = text(body.lesson);
+  const reflection =
+    text(body.reflection) ??
+    [wins, lesson, distractions].filter(Boolean).join(" | ") ??
+    "";
+
+  if (reflection.length > 5000) {
+    return NextResponse.json({ error: "Reflection must be 5000 characters or fewer." }, { status: 400 });
   }
 
-  const timeZone = body.time_zone?.trim() || DEFAULT_TIMEZONE;
+  const timeZone = text(body.time_zone) || DEFAULT_TIMEZONE;
   const checkinDate = getTodayISODate(timeZone);
+
+  const supabase = createClient(supabaseUrl, publishableKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 
   const { data, error } = await supabase.rpc("telegram_checkin", {
     p_chat_id: chatId,
     p_checkin_date: checkinDate,
-    p_mood: input.mood,
-    p_energy_level: input.energy_level,
-    p_distractions: input.distractions,
-    p_wins: input.wins,
-    p_lesson: input.lesson,
-    p_reflection: input.reflection,
+    p_mood: mood,
+    p_energy_level: energyLevel,
+    p_distractions: distractions,
+    p_wins: wins,
+    p_lesson: lesson,
+    p_reflection: reflection,
   });
 
   if (error) {
