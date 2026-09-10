@@ -1,0 +1,111 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getOrCreatePlannerCalendar } from "@/lib/google/planner-calendar";
+import * as serviceRoleModule from "@/lib/supabase/service-role";
+
+const originalFetch = global.fetch;
+
+beforeEach(() => {
+  global.fetch = vi.fn();
+  vi.restoreAllMocks();
+});
+
+afterEach(() => {
+  global.fetch = originalFetch;
+});
+
+function mockSupabase(existing: { calendar_id: string } | null = null) {
+  const maybeSingle = vi.fn().mockResolvedValue({ data: existing, error: null });
+  const eqSelect = vi.fn().mockReturnValue({ maybeSingle });
+  const select = vi.fn().mockReturnValue({ eq: eqSelect });
+  const deleteEq = vi.fn().mockResolvedValue({ error: null });
+  const deleteFn = vi.fn().mockReturnValue({ eq: deleteEq });
+  const upsert = vi.fn().mockResolvedValue({ error: null });
+  const from = vi.fn().mockReturnValue({ select, delete: deleteFn, upsert });
+
+  vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue({
+    from,
+  } as unknown as ReturnType<typeof serviceRoleModule.createServiceRoleClient>);
+
+  return { from, upsert, deleteFn, deleteEq };
+}
+
+describe("getOrCreatePlannerCalendar", () => {
+  it("returns a persisted calendar after verifying it still exists", async () => {
+    const db = mockSupabase({ calendar_id: "planner@example.com" });
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      status: 200,
+      text: async () => JSON.stringify({ id: "planner@example.com", summary: "AI Planner" }),
+    } as Response);
+
+    const result = await getOrCreatePlannerCalendar("user-1", "access-token");
+
+    expect(result).toBe("planner@example.com");
+    expect(global.fetch).toHaveBeenCalledWith(
+      "https://www.googleapis.com/calendar/v3/calendars/planner%40example.com",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer access-token" }),
+      }),
+    );
+    expect(db.upsert).not.toHaveBeenCalled();
+  });
+
+  it("creates and persists the planner calendar when no mapping exists", async () => {
+    const db = mockSupabase(null);
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      status: 200,
+      text: async () => JSON.stringify({ id: "new-planner@group.calendar.google.com" }),
+    } as Response);
+
+    const result = await getOrCreatePlannerCalendar("user-1", "access-token");
+
+    expect(result).toBe("new-planner@group.calendar.google.com");
+    expect(global.fetch).toHaveBeenCalledWith(
+      "https://www.googleapis.com/calendar/v3/calendars",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          summary: "AI Planner",
+          description: "Dedicated calendar for confirmed plans from AI Productivity Assistant.",
+        }),
+      }),
+    );
+    expect(db.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user_id: "user-1",
+        calendar_id: "new-planner@group.calendar.google.com",
+        summary: "AI Planner",
+      }),
+      { onConflict: "user_id" },
+    );
+  });
+
+  it("removes a stale mapping and recreates the calendar when Google returns 404", async () => {
+    const db = mockSupabase({ calendar_id: "deleted@group.calendar.google.com" });
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({ status: 404, text: async () => "not found" } as Response)
+      .mockResolvedValueOnce({
+        status: 200,
+        text: async () => JSON.stringify({ id: "replacement@group.calendar.google.com" }),
+      } as Response);
+
+    const result = await getOrCreatePlannerCalendar("user-1", "access-token");
+
+    expect(result).toBe("replacement@group.calendar.google.com");
+    expect(db.deleteFn).toHaveBeenCalledWith();
+    expect(db.deleteEq).toHaveBeenCalledWith("user_id", "user-1");
+    expect(db.upsert).toHaveBeenCalled();
+  });
+
+  it("does not silently create a replacement when calendar verification fails", async () => {
+    const db = mockSupabase({ calendar_id: "planner@group.calendar.google.com" });
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      status: 500,
+      text: async () => JSON.stringify({ error: { message: "temporary failure" } }),
+    } as Response);
+
+    await expect(
+      getOrCreatePlannerCalendar("user-1", "access-token"),
+    ).rejects.toThrow("Could not verify AI Planner calendar (500).");
+    expect(db.upsert).not.toHaveBeenCalled();
+  });
+});
