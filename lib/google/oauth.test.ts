@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { storeGoogleCredentials, getValidAccessToken } from "@/lib/google/oauth";
+import { buildGoogleAuthUrl, storeGoogleCredentials, getValidAccessToken } from "@/lib/google/oauth";
 import * as serviceRoleModule from "@/lib/supabase/service-role";
 
 // Mock the environment variables needed by oauth.ts
@@ -19,15 +19,33 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("Google OAuth - Authorization scopes", () => {
+  it("requests only the Calendar scopes required for Day 7", () => {
+    const url = new URL(buildGoogleAuthUrl("test-state"));
+    const scopes = new Set(url.searchParams.get("scope")?.split(" ") ?? []);
+
+    expect(scopes).toEqual(
+      new Set([
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar.calendars",
+      ]),
+    );
+    expect(url.searchParams.get("access_type")).toBe("offline");
+    expect(url.searchParams.get("prompt")).toBe("consent");
+    expect(url.searchParams.get("state")).toBe("test-state");
+  });
+});
+
 describe("Google OAuth - Refresh Token Preservation", () => {
   it("preserves existing refresh token when new token payload omits it", async () => {
     // Mock the Supabase client chain for `maybeSingle` and `upsert`
     const maybeSingleMock = vi.fn().mockResolvedValue({ data: { refresh_token: "old-refresh" } });
     const eqMock = vi.fn().mockReturnValue({ maybeSingle: maybeSingleMock });
     const selectMock = vi.fn().mockReturnValue({ eq: eqMock });
-    
+
     const upsertMock = vi.fn().mockResolvedValue({ error: null });
-    
+
     const fromMock = vi.fn().mockImplementation((table) => {
       if (table === "google_credentials") {
         return { select: selectMock, upsert: upsertMock };
@@ -52,7 +70,7 @@ describe("Google OAuth - Refresh Token Preservation", () => {
         access_token: "new-access",
         refresh_token: "old-refresh", // Preserved!
       }),
-      expect.objectContaining({ onConflict: "user_id" })
+      expect.objectContaining({ onConflict: "user_id" }),
     );
   });
 
@@ -69,7 +87,7 @@ describe("Google OAuth - Refresh Token Preservation", () => {
       expect.objectContaining({
         refresh_token: "new-refresh",
       }),
-      expect.objectContaining({ onConflict: "user_id" })
+      expect.objectContaining({ onConflict: "user_id" }),
     );
   });
 });
@@ -88,13 +106,13 @@ describe("Google OAuth - Refresh Error Classification", () => {
         expires_at: new Date(Date.now() - 1000).toISOString(), // Expired
       },
     });
-    
+
     const eqMockSelect = vi.fn().mockReturnValue({ maybeSingle: maybeSingleMock });
     const selectMock = vi.fn().mockReturnValue({ eq: eqMockSelect });
-    
+
     eqMockDelete = vi.fn().mockResolvedValue({ error: null });
     deleteMock = vi.fn().mockReturnValue({ eq: eqMockDelete });
-    
+
     const eqMockUpdate = vi.fn().mockResolvedValue({ error: null });
     updateMock = vi.fn().mockReturnValue({ eq: eqMockUpdate });
 
