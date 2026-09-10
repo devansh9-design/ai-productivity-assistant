@@ -23,7 +23,15 @@ function getGoogleConfig() {
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke";
-const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+
+// Day 6 only needed read access. Day 7 also creates events and a dedicated
+// secondary "AI Planner" calendar, so request only the write scopes required
+// for those operations.
+const CALENDAR_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.calendars",
+];
 
 // ---------------------------------------------------------------------------
 // OAuth URL generation
@@ -36,7 +44,7 @@ export function buildGoogleAuthUrl(state: string): string {
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: CALENDAR_SCOPE,
+    scope: CALENDAR_SCOPES.join(" "),
     access_type: "offline",
     prompt: "consent",
     state,
@@ -184,7 +192,7 @@ export async function getValidAccessToken(
 
     if (!response.ok) {
       const status = response.status;
-      
+
       // Parse the error to specifically check for invalid_grant
       if (status === 400 || status === 401) {
         try {
@@ -200,7 +208,7 @@ export async function getValidAccessToken(
           // If body parsing fails, fall through to generic error
         }
       }
-      
+
       // Temporary server/network failures, unknown 400/401 errors, or unparseable errors
       return { error: "calendar_sync_failed" };
     }
