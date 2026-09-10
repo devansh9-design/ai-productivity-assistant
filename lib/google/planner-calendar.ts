@@ -18,6 +18,20 @@ interface GoogleApiError {
   };
 }
 
+export interface PlannerEventInput {
+  planDate: string;
+  timeZone: string;
+  title: string;
+  startTime: string;
+  endTime: string;
+  dailyPlanId: string;
+  planBlockId: string;
+}
+
+interface GoogleEventResource {
+  id?: string;
+}
+
 async function googleRequest<T>(
   accessToken: string,
   path: string,
@@ -138,4 +152,55 @@ export async function getOrCreatePlannerCalendar(
   }
 
   return calendarId;
+}
+
+/**
+ * Creates one timed Google Calendar event for a confirmed plan block.
+ * Only callers that have already filtered plan blocks to task work should use this.
+ */
+export async function createPlannerEvent(
+  accessToken: string,
+  calendarId: string,
+  input: PlannerEventInput,
+): Promise<string> {
+  const result = await googleRequest<GoogleEventResource>(
+    accessToken,
+    `/calendars/${encodeURIComponent(calendarId)}/events`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        summary: input.title,
+        description: `AI Planner work block. Plan: ${input.dailyPlanId}. Block: ${input.planBlockId}.`,
+        start: {
+          dateTime: `${input.planDate}T${input.startTime}:00`,
+          timeZone: input.timeZone,
+        },
+        end: {
+          dateTime: `${input.planDate}T${input.endTime}:00`,
+          timeZone: input.timeZone,
+        },
+        extendedProperties: {
+          private: {
+            app: "ai-productivity-assistant",
+            dailyPlanId: input.dailyPlanId,
+            planBlockId: input.planBlockId,
+          },
+        },
+      }),
+    },
+  );
+
+  if (result.status !== 200 && result.status !== 201) {
+    const apiError = result.body as GoogleApiError | null;
+    throw new Error(
+      apiError?.error?.message ??
+        `Could not publish AI Planner event (${result.status}).`,
+    );
+  }
+
+  if (!result.body?.id) {
+    throw new Error("Google did not return an AI Planner event ID.");
+  }
+
+  return result.body.id;
 }
