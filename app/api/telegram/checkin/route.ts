@@ -5,10 +5,22 @@ import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
 
 export const runtime = "nodejs";
 
+function normalizeEnergy(value: string | null | undefined) {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (["low", "medium", "high"].includes(normalized)) return normalized;
+
+  const rating = Number.parseInt(normalized, 10);
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) return null;
+  if (rating <= 2) return "low";
+  if (rating === 3) return "medium";
+  return "high";
+}
+
 /**
  * Receives a parsed Telegram evening check-in from n8n.
  * This endpoint is intentionally protected by a shared secret and maps the
- * Telegram chat ID to the authenticated app user before writing to Supabase.
+ * Telegram chat ID to the app user before writing to Supabase.
  */
 export async function POST(request: NextRequest) {
   const secret = process.env.TELEGRAM_CHECKIN_WEBHOOK_SECRET;
@@ -21,7 +33,7 @@ export async function POST(request: NextRequest) {
   let body: {
     chat_id?: number | string;
     mood?: number | string | null;
-    energy_level?: string | null;
+    energy_level?: string | number | null;
     distractions?: string | null;
     wins?: string | null;
     lesson?: string | null;
@@ -50,8 +62,6 @@ export async function POST(request: NextRequest) {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // The Telegram chat id is stored against the app user by a separate
-  // mapping table. No caller-supplied user_id is trusted by this endpoint.
   const { data: mapping, error: mappingError } = await admin
     .from("telegram_chat_mappings")
     .select("user_id")
@@ -68,7 +78,8 @@ export async function POST(request: NextRequest) {
   const formData = new FormData();
   formData.set("reflection", String(body.reflection ?? ""));
   if (body.mood !== null && body.mood !== undefined) formData.set("mood", String(body.mood));
-  if (body.energy_level) formData.set("energy_level", body.energy_level);
+  const energy = normalizeEnergy(body.energy_level === null || body.energy_level === undefined ? null : String(body.energy_level));
+  if (energy) formData.set("energy_level", energy);
   if (body.distractions) formData.set("distractions", body.distractions);
   if (body.wins) formData.set("wins", body.wins);
   if (body.lesson) formData.set("lesson", body.lesson);
