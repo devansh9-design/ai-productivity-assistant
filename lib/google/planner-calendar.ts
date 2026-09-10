@@ -9,6 +9,12 @@ const PLANNER_DESCRIPTION = "Dedicated calendar for confirmed plans from AI Prod
 interface GoogleCalendarResource {
   id: string;
   summary?: string;
+  description?: string;
+}
+
+interface GoogleCalendarListResponse {
+  items?: GoogleCalendarResource[];
+  nextPageToken?: string;
 }
 
 interface GoogleApiError {
@@ -61,9 +67,47 @@ async function googleRequest<T>(
 
 function googleTime(value: string): string {
   // PostgreSQL time columns commonly arrive as HH:mm:ss, while callers/tests
-  // may provide HH:mm. Google Calendar's dateTime accepts HH:mm:ss but not an
-  // accidental HH:mm:ss:00 suffix.
+  // may provide HH:mm. Google Calendar accepts a complete local time without
+  // adding an extra seconds component.
   return value.length === 5 ? `${value}:00` : value;
+}
+
+async function findExistingPlannerCalendar(
+  accessToken: string,
+): Promise<string | null> {
+  let pageToken: string | undefined;
+
+  do {
+    const query = new URLSearchParams({
+      maxResults: "250",
+      showDeleted: "false",
+    });
+    if (pageToken) query.set("pageToken", pageToken);
+
+    const result = await googleRequest<GoogleCalendarListResponse>(
+      accessToken,
+      `/users/me/calendarList?${query.toString()}`,
+    );
+
+    if (result.status !== 200) {
+      const apiError = result.body as GoogleApiError | null;
+      throw new Error(
+        apiError?.error?.message ??
+          `Could not list Google calendars (${result.status}).`,
+      );
+    }
+
+    const match = result.body?.items?.find(
+      (calendar) =>
+        calendar.summary === PLANNER_SUMMARY &&
+        calendar.description === PLANNER_DESCRIPTION,
+    );
+    if (match?.id) return match.id;
+
+    pageToken = result.body?.nextPageToken;
+  } while (pageToken);
+
+  return null;
 }
 
 /**
@@ -106,6 +150,8 @@ async function getPersistedPlannerCalendar(
 /**
  * Gets or creates one dedicated secondary Google Calendar named AI Planner.
  * The calendar id is persisted per user so repeated calls are idempotent.
+ * If the local mapping is missing, an existing matching calendar is reused
+ * before creating a new one.
  */
 export async function getOrCreatePlannerCalendar(
   userId: string,
@@ -116,6 +162,27 @@ export async function getOrCreatePlannerCalendar(
     accessToken,
   );
   if (existingCalendarId) return existingCalendarId;
+
+  const matchingCalendarId = await findExistingPlannerCalendar(accessToken);
+  if (matchingCalendarId) {
+    const supabase = createServiceRoleClient();
+    const { error } = await supabase.from("google_planner_calendars").upsert(
+      {
+        user_id: userId,
+        calendar_id: matchingCalendarId,
+        summary: PLANNER_SUMMARY,
+      },
+      { onConflict: "user_id" },
+    );
+
+    if (error) {
+      throw new Error(
+        `AI Planner calendar exists but could not be saved: ${error.message}`,
+      );
+    }
+
+    return matchingCalendarId;
+  }
 
   const created = await googleRequest<GoogleCalendarResource>(
     accessToken,
