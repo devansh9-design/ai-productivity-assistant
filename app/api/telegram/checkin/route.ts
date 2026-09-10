@@ -19,8 +19,9 @@ function normalizeEnergy(value: string | null | undefined) {
 
 /**
  * Receives a parsed Telegram evening check-in from n8n.
- * This endpoint is intentionally protected by a shared secret and maps the
- * Telegram chat ID to the app user before writing to Supabase.
+ * Authentication is handled by a shared webhook secret. The actual database
+ * write is performed by a Supabase SECURITY DEFINER RPC so this endpoint
+ * does not require the server-only service-role key.
  */
 export async function POST(request: NextRequest) {
   const secret = process.env.TELEGRAM_CHECKIN_WEBHOOK_SECRET;
@@ -53,32 +54,30 @@ export async function POST(request: NextRequest) {
   }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) {
-    return NextResponse.json({ error: "Server configuration is incomplete" }, { status: 500 });
+  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+  if (!supabaseUrl || !publishableKey) {
+    return NextResponse.json(
+      { error: "Supabase public configuration is incomplete" },
+      { status: 500 },
+    );
   }
 
-  const admin = createClient(supabaseUrl, serviceRoleKey, {
+  const supabase = createClient(supabaseUrl, publishableKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  const { data: mapping, error: mappingError } = await admin
-    .from("telegram_chat_mappings")
-    .select("user_id")
-    .eq("chat_id", chatId)
-    .maybeSingle();
-
-  if (mappingError) {
-    return NextResponse.json({ error: mappingError.message }, { status: 500 });
-  }
-  if (!mapping) {
-    return NextResponse.json({ error: "Telegram chat is not linked" }, { status: 403 });
-  }
-
   const formData = new FormData();
   formData.set("reflection", String(body.reflection ?? ""));
-  if (body.mood !== null && body.mood !== undefined) formData.set("mood", String(body.mood));
-  const energy = normalizeEnergy(body.energy_level === null || body.energy_level === undefined ? null : String(body.energy_level));
+  if (body.mood !== null && body.mood !== undefined) {
+    formData.set("mood", String(body.mood));
+  }
+
+  const energy = normalizeEnergy(
+    body.energy_level === null || body.energy_level === undefined
+      ? null
+      : String(body.energy_level),
+  );
   if (energy) formData.set("energy_level", energy);
   if (body.distractions) formData.set("distractions", body.distractions);
   if (body.wins) formData.set("wins", body.wins);
@@ -97,41 +96,21 @@ export async function POST(request: NextRequest) {
   const timeZone = body.time_zone?.trim() || DEFAULT_TIMEZONE;
   const checkinDate = getTodayISODate(timeZone);
 
-  const { data: checkin, error: checkinError } = await admin
-    .from("checkins")
-    .upsert(
-      {
-        user_id: mapping.user_id,
-        checkin_date: checkinDate,
-        type: "evening",
-        mood: input.mood,
-        energy_level: input.energy_level,
-        distractions: input.distractions,
-        wins: input.wins,
-        lesson: input.lesson,
-      },
-      { onConflict: "user_id,checkin_date,type" },
-    )
-    .select("id")
-    .single();
+  const { data, error } = await supabase.rpc("telegram_checkin", {
+    p_chat_id: chatId,
+    p_checkin_date: checkinDate,
+    p_mood: input.mood,
+    p_energy_level: input.energy_level,
+    p_distractions: input.distractions,
+    p_wins: input.wins,
+    p_lesson: input.lesson,
+    p_reflection: input.reflection,
+  });
 
-  if (checkinError) {
-    return NextResponse.json({ error: checkinError.message }, { status: 500 });
+  if (error) {
+    const status = error.message === "Telegram chat is not linked" ? 403 : 500;
+    return NextResponse.json({ error: error.message }, { status });
   }
 
-  const { error: journalError } = await admin.from("journal_entries").upsert(
-    {
-      user_id: mapping.user_id,
-      entry_date: checkinDate,
-      checkin_id: checkin.id,
-      reflection: input.reflection,
-    },
-    { onConflict: "user_id,entry_date" },
-  );
-
-  if (journalError) {
-    return NextResponse.json({ error: journalError.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ ok: true, checkin_id: checkin.id, checkin_date: checkinDate });
+  return NextResponse.json(data);
 }
