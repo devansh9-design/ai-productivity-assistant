@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getOrCreatePlannerCalendar } from "@/lib/google/planner-calendar";
 import * as serviceRoleModule from "@/lib/supabase/service-role";
 
@@ -49,17 +49,60 @@ describe("getOrCreatePlannerCalendar", () => {
     expect(db.upsert).not.toHaveBeenCalled();
   });
 
-  it("creates and persists the planner calendar when no mapping exists", async () => {
+  it("reuses an existing matching Google calendar when no mapping exists", async () => {
     const db = mockSupabase(null);
     vi.mocked(global.fetch).mockResolvedValueOnce({
       status: 200,
-      text: async () => JSON.stringify({ id: "new-planner@group.calendar.google.com" }),
+      text: async () =>
+        JSON.stringify({
+          items: [
+            {
+              id: "existing-planner@group.calendar.google.com",
+              summary: "AI Planner",
+              description: "Dedicated calendar for confirmed plans from AI Productivity Assistant.",
+            },
+          ],
+        }),
     } as Response);
 
     const result = await getOrCreatePlannerCalendar("user-1", "access-token");
 
+    expect(result).toBe("existing-planner@group.calendar.google.com");
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(db.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user_id: "user-1",
+        calendar_id: "existing-planner@group.calendar.google.com",
+        summary: "AI Planner",
+      }),
+      { onConflict: "user_id" },
+    );
+  });
+
+  it("creates and persists the planner calendar when no mapping or matching calendar exists", async () => {
+    const db = mockSupabase(null);
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        status: 200,
+        text: async () => JSON.stringify({ items: [] }),
+      } as Response)
+      .mockResolvedValueOnce({
+        status: 200,
+        text: async () => JSON.stringify({ id: "new-planner@group.calendar.google.com" }),
+      } as Response);
+
+    const result = await getOrCreatePlannerCalendar("user-1", "access-token");
+
     expect(result).toBe("new-planner@group.calendar.google.com");
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      1,
+      "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=250&showDeleted=false",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer access-token" }),
+      }),
+    );
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
       "https://www.googleapis.com/calendar/v3/calendars",
       expect.objectContaining({
         method: "POST",
@@ -79,13 +122,22 @@ describe("getOrCreatePlannerCalendar", () => {
     );
   });
 
-  it("removes a stale mapping and recreates the calendar when Google returns 404", async () => {
+  it("removes a stale mapping and reuses an existing matching calendar", async () => {
     const db = mockSupabase({ calendar_id: "deleted@group.calendar.google.com" });
     vi.mocked(global.fetch)
       .mockResolvedValueOnce({ status: 404, text: async () => "not found" } as Response)
       .mockResolvedValueOnce({
         status: 200,
-        text: async () => JSON.stringify({ id: "replacement@group.calendar.google.com" }),
+        text: async () =>
+          JSON.stringify({
+            items: [
+              {
+                id: "replacement@group.calendar.google.com",
+                summary: "AI Planner",
+                description: "Dedicated calendar for confirmed plans from AI Productivity Assistant.",
+              },
+            ],
+          }),
       } as Response);
 
     const result = await getOrCreatePlannerCalendar("user-1", "access-token");
