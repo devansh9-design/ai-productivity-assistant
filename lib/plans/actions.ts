@@ -16,11 +16,8 @@ import {
   createPlannerEvent,
   getOrCreatePlannerCalendar,
 } from "@/lib/google/planner-calendar";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { DailyPlan, PlanBlock, Task } from "@/lib/types";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function requiredText(formData: FormData, key: string, label: string): string {
   const value = String(formData.get(key) ?? "").trim();
@@ -31,10 +28,6 @@ function requiredText(formData: FormData, key: string, label: string): string {
 function validTime(value: string): boolean {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 }
-
-// ---------------------------------------------------------------------------
-// Generate a draft plan (or regenerate an existing draft)
-// ---------------------------------------------------------------------------
 
 export async function generateDraftPlan() {
   const { supabase, user } = await requireUser();
@@ -125,14 +118,11 @@ export async function generateDraftPlan() {
   }));
 
   const tokenResult = await getValidAccessToken(user.id);
-
   let calendarEvents: { googleEventId: string; title: string; startTime: string; endTime: string }[] = [];
 
   if ("error" in tokenResult) {
     if (tokenResult.error === "reconnect_required") {
-      return {
-        error: "Google Calendar credentials are no longer valid. Please reconnect Google Calendar in Settings.",
-      };
+      return { error: "Google Calendar credentials are no longer valid. Please reconnect Google Calendar in Settings." };
     }
     if (tokenResult.error === "calendar_sync_failed") {
       return { error: "Could not sync Google Calendar events. Please try again." };
@@ -140,24 +130,16 @@ export async function generateDraftPlan() {
   } else {
     const tzCookie = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value;
     if (!tzCookie) {
-      return {
-        error: "Timezone could not be determined. Please refresh the page to sync your timezone.",
-      };
+      return { error: "Timezone could not be determined. Please refresh the page to sync your timezone." };
     }
     try {
       new Intl.DateTimeFormat("en-US", { timeZone: tzCookie });
     } catch {
-      return {
-        error: "Invalid timezone detected. Please refresh the page to sync your timezone.",
-      };
+      return { error: "Invalid timezone detected. Please refresh the page to sync your timezone." };
     }
 
     try {
-      calendarEvents = await fetchCalendarEvents(
-        tokenResult.token,
-        planDate,
-        tzCookie,
-      );
+      calendarEvents = await fetchCalendarEvents(tokenResult.token, planDate, tzCookie);
     } catch {
       return { error: "Could not sync Google Calendar events. Please try again." };
     }
@@ -200,10 +182,6 @@ export async function generateDraftPlan() {
   revalidatePath("/today");
 }
 
-// ---------------------------------------------------------------------------
-// Confirm a draft plan and publish its task blocks to AI Planner
-// ---------------------------------------------------------------------------
-
 export async function confirmPlan(formData: FormData) {
   const { supabase, user } = await requireUser();
   const planId = requiredText(formData, "plan_id", "Plan ID");
@@ -211,39 +189,27 @@ export async function confirmPlan(formData: FormData) {
   const { data: plan, error } = await supabase
     .rpc("confirm_daily_plan", { p_plan_id: planId })
     .single<DailyPlan>();
-  if (error || !plan)
-    throw new Error(error?.message ?? "Could not confirm plan.");
+  if (error || !plan) throw new Error(error?.message ?? "Could not confirm plan.");
 
   const tokenResult = await getValidAccessToken(user.id);
-
   if ("error" in tokenResult) {
     if (tokenResult.error === "not_connected") {
       revalidatePath("/today");
       return;
     }
     if (tokenResult.error === "reconnect_required") {
-      throw new Error(
-        "Plan confirmed, but Google Calendar needs to be reconnected before it can be published.",
-      );
+      throw new Error("Plan confirmed, but Google Calendar needs to be reconnected before it can be published.");
     }
-    throw new Error(
-      "Plan confirmed, but Google Calendar could not be accessed. Please try again.",
-    );
+    throw new Error("Plan confirmed, but Google Calendar could not be accessed. Please try again.");
   }
 
   const cookieStore = await cookies();
   const timeZone = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value;
-  if (!timeZone) {
-    throw new Error(
-      "Plan confirmed, but your timezone could not be determined. Please refresh and try again.",
-    );
-  }
+  if (!timeZone) throw new Error("Plan confirmed, but your timezone could not be determined. Please refresh and try again.");
   try {
     new Intl.DateTimeFormat("en-US", { timeZone });
   } catch {
-    throw new Error(
-      "Plan confirmed, but your timezone is invalid. Please refresh and try again.",
-    );
+    throw new Error("Plan confirmed, but your timezone is invalid. Please refresh and try again.");
   }
 
   const { data: blocks, error: blocksError } = await supabase
@@ -253,12 +219,7 @@ export async function confirmPlan(formData: FormData) {
     .eq("user_id", user.id)
     .eq("kind", "task")
     .returns<PlanBlock[]>();
-
-  if (blocksError) {
-    throw new Error(
-      `Plan confirmed, but its work blocks could not be loaded: ${blocksError.message}`,
-    );
-  }
+  if (blocksError) throw new Error(`Plan confirmed, but its work blocks could not be loaded: ${blocksError.message}`);
 
   try {
     const calendarId = await getOrCreatePlannerCalendar(user.id, tokenResult.token);
@@ -283,47 +244,31 @@ export async function confirmPlan(formData: FormData) {
           plan_block_id: block.id,
           google_event_id: googleEventId,
         });
-
       if (mappingError) {
-        throw new Error(
-          `Google event ${googleEventId} was created, but its local mapping could not be saved: ${mappingError.message}`,
-        );
+        throw new Error(`Google event ${googleEventId} was created, but its local mapping could not be saved: ${mappingError.message}`);
       }
     }
   } catch (publishError) {
-    const message =
-      publishError instanceof Error ? publishError.message : "Unknown publishing error.";
+    const message = publishError instanceof Error ? publishError.message : "Unknown publishing error.";
     throw new Error(`Plan confirmed, but publishing to AI Planner failed: ${message}`);
   }
 
   revalidatePath("/today");
 }
 
-// ---------------------------------------------------------------------------
-// Remove a block from a draft plan (database-enforced atomic draft check)
-// ---------------------------------------------------------------------------
-
 export async function removePlanBlock(formData: FormData) {
   const { supabase } = await requireUser();
   const blockId = requiredText(formData, "block_id", "Block ID");
-
-  const { error } = await supabase.rpc("delete_draft_plan_block", {
-    p_block_id: blockId,
-  });
+  const { error } = await supabase.rpc("delete_draft_plan_block", { p_block_id: blockId });
   if (error) throw new Error(error.message);
   revalidatePath("/today");
 }
-
-// ---------------------------------------------------------------------------
-// Edit a block's start/end time in a draft plan (database-enforced atomic check)
-// ---------------------------------------------------------------------------
 
 export async function editPlanBlock(formData: FormData) {
   const { supabase } = await requireUser();
   const blockId = requiredText(formData, "block_id", "Block ID");
   const newStart = requiredText(formData, "start_time", "Start time");
   const newEnd = requiredText(formData, "end_time", "End time");
-
   if (!validTime(newStart) || !validTime(newEnd) || newEnd <= newStart)
     throw new Error("Choose a valid same-day start and end time.");
 
