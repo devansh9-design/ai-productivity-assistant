@@ -12,6 +12,10 @@ import {
 import { buildDraftPlan, type ExistingManualBlock } from "@/lib/plans/planner";
 import { getValidAccessToken } from "@/lib/google/oauth";
 import { fetchCalendarEvents } from "@/lib/google/calendar";
+import {
+  createPlannerEvent,
+  getOrCreatePlannerCalendar,
+} from "@/lib/google/planner-calendar";
 import type { DailyPlan, PlanBlock, Task } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -40,7 +44,6 @@ export async function generateDraftPlan() {
   const planDate = getTodayISODate(timeZone);
   const weekday = new Date(`${planDate}T00:00:00Z`).getUTCDay();
 
-  // Fetch scheduling inputs + existing active plan in parallel
   const [
     { data: rules, error: rulesError },
     { data: commitments, error: commitmentsError },
@@ -69,8 +72,6 @@ export async function generateDraftPlan() {
         "Could not load scheduling data.",
     };
 
-  // Collect manual blocks from an existing *draft* only.
-  // Confirmed plans get superseded; their blocks are not reused.
   let manualBlocks: ExistingManualBlock[] = [];
   if (existingActivePlan?.status === "draft") {
     const { data: blocks } = await supabase
@@ -83,7 +84,6 @@ export async function generateDraftPlan() {
     manualBlocks = (blocks ?? []).map((b) => ({
       id: b.id,
       task_id: b.task_id,
-      // Calendar blocks are never is_manual=true, so this cast is safe
       kind: b.kind as "task" | "buffer",
       title: b.title,
       start_time: b.start_time,
@@ -124,10 +124,6 @@ export async function generateDraftPlan() {
     createdAt: task.created_at,
   }));
 
-  // ---------------------------------------------------------------------------
-  // Fetch calendar events (Day 6)
-  // ---------------------------------------------------------------------------
-
   const tokenResult = await getValidAccessToken(user.id);
 
   let calendarEvents: { googleEventId: string; title: string; startTime: string; endTime: string }[] = [];
@@ -141,10 +137,7 @@ export async function generateDraftPlan() {
     if (tokenResult.error === "calendar_sync_failed") {
       return { error: "Could not sync Google Calendar events. Please try again." };
     }
-    // "not_connected" → proceed without calendar events
   } else {
-    // If the calendar is connected, we MUST have a valid user timezone to schedule events correctly.
-    // Falling back to UTC would schedule local events in UTC and block the wrong hours.
     const tzCookie = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value;
     if (!tzCookie) {
       return {
@@ -163,14 +156,13 @@ export async function generateDraftPlan() {
       calendarEvents = await fetchCalendarEvents(
         tokenResult.token,
         planDate,
-        tzCookie, // Always use the explicitly validated timezone, not the DEFAULT_TIMEZONE fallback
+        tzCookie,
       );
     } catch {
       return { error: "Could not sync Google Calendar events. Please try again." };
     }
   }
 
-  // Run pure planner orchestrator
   const planResult = buildDraftPlan({
     date: planDate,
     weekday,
@@ -209,11 +201,11 @@ export async function generateDraftPlan() {
 }
 
 // ---------------------------------------------------------------------------
-// Confirm a draft plan
+// Confirm a draft plan and publish its task blocks to AI Planner
 // ---------------------------------------------------------------------------
 
 export async function confirmPlan(formData: FormData) {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const planId = requiredText(formData, "plan_id", "Plan ID");
 
   const { data: plan, error } = await supabase
@@ -221,6 +213,89 @@ export async function confirmPlan(formData: FormData) {
     .single<DailyPlan>();
   if (error || !plan)
     throw new Error(error?.message ?? "Could not confirm plan.");
+
+  const tokenResult = await getValidAccessToken(user.id);
+
+  if ("error" in tokenResult) {
+    if (tokenResult.error === "not_connected") {
+      revalidatePath("/today");
+      return;
+    }
+    if (tokenResult.error === "reconnect_required") {
+      throw new Error(
+        "Plan confirmed, but Google Calendar needs to be reconnected before it can be published.",
+      );
+    }
+    throw new Error(
+      "Plan confirmed, but Google Calendar could not be accessed. Please try again.",
+    );
+  }
+
+  const cookieStore = await cookies();
+  const timeZone = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value;
+  if (!timeZone) {
+    throw new Error(
+      "Plan confirmed, but your timezone could not be determined. Please refresh and try again.",
+    );
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+  } catch {
+    throw new Error(
+      "Plan confirmed, but your timezone is invalid. Please refresh and try again.",
+    );
+  }
+
+  const { data: blocks, error: blocksError } = await supabase
+    .from("plan_blocks")
+    .select("*")
+    .eq("daily_plan_id", plan.id)
+    .eq("user_id", user.id)
+    .eq("kind", "task")
+    .returns<PlanBlock[]>();
+
+  if (blocksError) {
+    throw new Error(
+      `Plan confirmed, but its work blocks could not be loaded: ${blocksError.message}`,
+    );
+  }
+
+  try {
+    const calendarId = await getOrCreatePlannerCalendar(user.id, tokenResult.token);
+    const serviceRole = createServiceRoleClient();
+
+    for (const block of blocks ?? []) {
+      const googleEventId = await createPlannerEvent(tokenResult.token, calendarId, {
+        planDate: plan.plan_date,
+        timeZone,
+        title: block.title,
+        startTime: block.start_time,
+        endTime: block.end_time,
+        dailyPlanId: plan.id,
+        planBlockId: block.id,
+      });
+
+      const { error: mappingError } = await serviceRole
+        .from("google_planner_events")
+        .insert({
+          user_id: user.id,
+          daily_plan_id: plan.id,
+          plan_block_id: block.id,
+          google_event_id: googleEventId,
+        });
+
+      if (mappingError) {
+        throw new Error(
+          `Google event ${googleEventId} was created, but its local mapping could not be saved: ${mappingError.message}`,
+        );
+      }
+    }
+  } catch (publishError) {
+    const message =
+      publishError instanceof Error ? publishError.message : "Unknown publishing error.";
+    throw new Error(`Plan confirmed, but publishing to AI Planner failed: ${message}`);
+  }
+
   revalidatePath("/today");
 }
 
