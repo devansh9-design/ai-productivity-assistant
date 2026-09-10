@@ -59,6 +59,13 @@ async function googleRequest<T>(
   return { status: response.status, body };
 }
 
+function googleTime(value: string): string {
+  // PostgreSQL time columns commonly arrive as HH:mm:ss, while callers/tests
+  // may provide HH:mm. Google Calendar's dateTime accepts HH:mm:ss but not an
+  // accidental HH:mm:ss:00 suffix.
+  return value.length === 5 ? `${value}:00` : value;
+}
+
 /**
  * Returns the user's persisted AI Planner calendar, verifying that it still
  * exists in Google. If it was deleted externally, the stale mapping is removed.
@@ -172,11 +179,11 @@ export async function createPlannerEvent(
         summary: input.title,
         description: `AI Planner work block. Plan: ${input.dailyPlanId}. Block: ${input.planBlockId}.`,
         start: {
-          dateTime: `${input.planDate}T${input.startTime}:00`,
+          dateTime: `${input.planDate}T${googleTime(input.startTime)}`,
           timeZone: input.timeZone,
         },
         end: {
-          dateTime: `${input.planDate}T${input.endTime}:00`,
+          dateTime: `${input.planDate}T${googleTime(input.endTime)}`,
           timeZone: input.timeZone,
         },
         extendedProperties: {
