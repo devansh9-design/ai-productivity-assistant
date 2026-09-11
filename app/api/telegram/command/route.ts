@@ -141,6 +141,60 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  if (command === "/done" || command === "done" || command === "/skip" || command === "skip") {
+    const parts = (clean(body.command) || clean(body.text) || "").trim().split(/\s+/);
+    const taskId = parts[1] || "";
+    const isSkip = command === "/skip" || command === "skip";
+
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(taskId)) {
+      return NextResponse.json({ error: isSkip ? "Usage: /skip <task-id> <reason>" : "Usage: /done <task-id>" }, { status: 400 });
+    }
+
+    const mapping = await supabase
+      .from("telegram_chat_mappings")
+      .select("user_id")
+      .eq("chat_id", chatId)
+      .maybeSingle();
+
+    if (mapping.error) return NextResponse.json({ error: mapping.error.message }, { status: 500 });
+    if (!mapping.data) return NextResponse.json({ error: "Telegram chat is not linked to an account." }, { status: 403 });
+
+    const reason = parts.slice(2).join(" ").trim();
+    if (isSkip && !reason) {
+      return NextResponse.json({ error: "Usage: /skip <task-id> <reason>" }, { status: 400 });
+    }
+
+    const { data: task, error: lookupError } = await supabase
+      .from("tasks")
+      .select("id,title,status")
+      .eq("id", taskId)
+      .eq("user_id", mapping.data.user_id)
+      .maybeSingle();
+
+    if (lookupError) return NextResponse.json({ error: lookupError.message }, { status: 500 });
+    if (!task) return NextResponse.json({ error: "Task not found for this Telegram account. Check the task ID and try again." }, { status: 404 });
+
+    const update = isSkip
+      ? { status: "skipped", status_reason: reason }
+      : { status: "completed", status_reason: null };
+
+    const { error: updateError } = await supabase
+      .from("tasks")
+      .update(update)
+      .eq("id", task.id)
+      .eq("user_id", mapping.data.user_id);
+
+    if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+
+    return NextResponse.json({
+      ok: true,
+      command: isSkip ? "skip" : "done",
+      chat_id: chatId,
+      task_id: task.id,
+      text: isSkip ? `⏭️ Skipped: ${task.title}\nReason: ${reason}` : `✅ Completed: ${task.title}`,
+    });
+  }
+
   if (command === "/help" || command === "help" || command === "/start" || command === "start") {
     return NextResponse.json({
       ok: true,
