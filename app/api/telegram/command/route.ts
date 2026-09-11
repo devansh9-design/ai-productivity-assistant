@@ -200,7 +200,7 @@ export async function POST(request: NextRequest) {
       ok: true,
       command: "help",
       chat_id: chatId,
-      text: "🤖 Productivity Assistant\n\n/today — show today's plan\n/plan — show today's plan\n/checkin — submit your daily check-in\n/help — show this help",
+      text: "🤖 Productivity Assistant\n\n/today — show today's plan\n/plan — show today's plan\n/checkin — submit your daily check-in\n/done <task-id> — mark your task completed\n/skip <task-id> <reason> — skip a task with a reason\n/help — show this help",
     });
   }
 
@@ -208,6 +208,6 @@ export async function POST(request: NextRequest) {
     ok: true,
     command: "unknown",
     chat_id: chatId,
-    text: "I don't know that command yet. Try /today, /checkin, or /help.",
+    text: "I don't know that command yet. Try /today, /done, /skip, /checkin, or /help.",
   });
 }
