@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth/require-user";
 import { TIMEZONE_COOKIE_NAME, DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
 import { getValidAccessToken } from "@/lib/google/oauth";
@@ -11,11 +10,16 @@ import { generateDraftPlan } from "@/lib/plans/actions";
 const OPENAI_URL = "https://api.openai.com/v1/responses";
 const MAX_MESSAGE_LENGTH = 2000;
 
-function extractOutputText(body: any): string {
-  if (typeof body?.output_text === "string") return body.output_text;
-  for (const item of body?.output ?? []) {
-    for (const content of item?.content ?? []) {
-      if (typeof content?.text === "string") return content.text;
+function extractOutputText(body: unknown): string {
+  const response = body as { output_text?: unknown; output?: unknown[] };
+  if (typeof response.output_text === "string") return response.output_text;
+  for (const item of response.output ?? []) {
+    if (!item || typeof item !== "object") continue;
+    const contents = (item as { content?: unknown[] }).content ?? [];
+    for (const content of contents) {
+      if (content && typeof content === "object" && typeof (content as { text?: unknown }).text === "string") {
+        return (content as { text: string }).text;
+      }
     }
   }
   throw new Error("OpenAI returned no structured output.");
@@ -76,7 +80,7 @@ export async function POST(request: Request) {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || "gpt-5.6-luna",
+        model: process.env.OPENAI_MODEL || "gpt-5-mini",
         instructions: AI_INSTRUCTIONS,
         input: JSON.stringify(context),
         store: false,
