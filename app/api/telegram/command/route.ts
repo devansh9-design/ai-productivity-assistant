@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { isValidISODate } from "@/lib/tasks/date-validation";
 import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
 
 export const runtime = "nodejs";
@@ -108,18 +109,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "chat_id is required" }, { status: 400 });
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  if (!supabaseUrl || !publishableKey) {
-    return NextResponse.json({ error: "Supabase configuration is incomplete" }, { status: 500 });
-  }
-
   const timeZone = clean(body.time_zone) || DEFAULT_TIMEZONE;
   const planDate = clean(body.plan_date) || getTodayISODate(timeZone);
 
-  const supabase = createClient(supabaseUrl, publishableKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  if (!isValidISODate(planDate)) {
+    return NextResponse.json({ error: "plan_date must use YYYY-MM-DD format." }, { status: 400 });
+  }
+
+  const supabase = createServiceRoleClient();
 
   if (command === "/today" || command === "today" || command === "/plan" || command === "plan") {
     const { data, error } = await supabase.rpc("telegram_today", {
