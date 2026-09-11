@@ -4,6 +4,31 @@ import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
 
 export const runtime = "nodejs";
 
+type TelegramPlan = {
+  status?: string;
+  version?: number | string;
+  buffer_minutes?: number | null;
+};
+
+type TelegramBlock = {
+  kind?: string;
+  start_time?: string | null;
+  end_time?: string | null;
+  title?: string | null;
+};
+
+type TelegramUnscheduledTask = {
+  estimated_minutes?: number | null;
+  reason?: string | null;
+  title?: string | null;
+};
+
+type TelegramTodayData = {
+  plan?: TelegramPlan | null;
+  blocks?: TelegramBlock[] | null;
+  unscheduled?: TelegramUnscheduledTask[] | null;
+};
+
 function clean(value: unknown) {
   const v = String(value ?? "").trim();
   return v || null;
@@ -14,7 +39,7 @@ function formatTime(value: unknown) {
   return String(value).slice(0, 5);
 }
 
-function formatToday(data: any) {
+function formatToday(data: TelegramTodayData | null | undefined) {
   const lines: string[] = [];
   lines.push("📅 Today's Plan");
   lines.push("");
@@ -26,30 +51,30 @@ function formatToday(data: any) {
     return lines.join("\n");
   }
 
-  lines.push(`Status: ${plan.status} • Version ${plan.version}`);
+  lines.push(`Status: ${plan.status ?? "unknown"} • Version ${plan.version ?? "?"}`);
   if (plan.buffer_minutes != null) lines.push(`Buffer: ${plan.buffer_minutes} min`);
   lines.push("");
 
-  const blocks = Array.isArray(data.blocks) ? data.blocks : [];
-  const scheduled = blocks.filter((b: any) => b.kind !== "buffer");
+  const blocks = Array.isArray(data?.blocks) ? data.blocks : [];
+  const scheduled = blocks.filter((b) => b.kind !== "buffer");
 
   if (scheduled.length) {
     lines.push("⏰ Schedule");
     for (const b of scheduled) {
       const start = formatTime(b.start_time);
       const end = formatTime(b.end_time);
-      lines.push(`• ${start}-${end} — ${b.title}`);
+      lines.push(`• ${start}-${end} — ${b.title ?? "Untitled task"}`);
     }
     lines.push("");
   }
 
-  const unscheduled = Array.isArray(data.unscheduled) ? data.unscheduled : [];
+  const unscheduled = Array.isArray(data?.unscheduled) ? data.unscheduled : [];
   if (unscheduled.length) {
     lines.push("📌 Unscheduled");
     for (const t of unscheduled) {
       const mins = t.estimated_minutes ? ` (${t.estimated_minutes}m)` : "";
       const reason = t.reason ? ` — ${t.reason}` : "";
-      lines.push(`• ${t.title}${mins}${reason}`);
+      lines.push(`• ${t.title ?? "Untitled task"}${mins}${reason}`);
     }
     lines.push("");
   }
@@ -107,12 +132,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status });
     }
 
+    const todayData = data as TelegramTodayData | null;
+
     return NextResponse.json({
       ok: true,
       command: command.replace(/^\//, ""),
       chat_id: chatId,
       plan_date: planDate,
-      text: formatToday(data),
+      text: formatToday(todayData),
       data,
     });
   }
