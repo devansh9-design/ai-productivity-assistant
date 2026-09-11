@@ -10,7 +10,7 @@ const TEXT_LIMITS = {
 
 export interface TelegramCheckinInput {
   chatId: string;
-  mood: number | null;
+  mood: number;
   energyLevel: EnergyLevel | null;
   distractions: string | null;
   wins: string | null;
@@ -40,9 +40,7 @@ function parseChatId(value: unknown): string {
   throw new TelegramCheckinValidationError("chat_id must be a Telegram chat ID.");
 }
 
-function parseMood(value: unknown): number | null {
-  if (value === undefined || value === null || value === "") return null;
-
+function parseMood(value: unknown): number {
   const mood =
     typeof value === "number" && Number.isInteger(value)
       ? value

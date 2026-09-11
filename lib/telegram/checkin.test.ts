@@ -13,18 +13,20 @@ const payload = {
 };
 
 describe("parseTelegramCheckinPayload", () => {
-  it.each([1, 5, "1", "5"])("accepts mood %s", (mood) => {
+  it.each([1, 3, 5, "1", "4", "5"])("accepts mood %s", (mood) => {
     expect(parseTelegramCheckinPayload({ ...payload, mood }).mood).toBe(Number(mood));
   });
 
-  it.each([0, 6, "abc", "=4"])("rejects invalid mood %s", (mood) => {
+  it.each([0, 6, -1, 4.5, null, "", "abc", "=4"])("rejects invalid mood %s", (mood) => {
     expect(() => parseTelegramCheckinPayload({ ...payload, mood })).toThrow(
       TelegramCheckinValidationError,
     );
   });
 
-  it("allows mood to be omitted", () => {
-    expect(parseTelegramCheckinPayload({ ...payload, mood: undefined }).mood).toBeNull();
+  it("rejects a missing mood", () => {
+    expect(() => parseTelegramCheckinPayload({ ...payload, mood: undefined })).toThrow(
+      "Mood must be a number from 1 to 5.",
+    );
   });
 
   it("preserves a valid Telegram chat ID", () => {
@@ -35,5 +37,9 @@ describe("parseTelegramCheckinPayload", () => {
     expect(() => parseTelegramCheckinPayload({ ...payload, chat_id: "=8206591526" })).toThrow(
       "chat_id must be a Telegram chat ID.",
     );
+  });
+
+  it("retains Asia/Kolkata as the requested timezone", () => {
+    expect(parseTelegramCheckinPayload(payload).timeZone).toBe("Asia/Kolkata");
   });
 });

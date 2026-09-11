@@ -60,6 +60,19 @@ describe("POST /api/telegram/checkin", () => {
     expect(createServiceRoleClient).not.toHaveBeenCalled();
   });
 
+  it("rejects a missing secret before accessing Supabase", async () => {
+    const response = await POST(
+      new Request("http://localhost/api/telegram/checkin", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(validPayload),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(createServiceRoleClient).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed JSON", async () => {
     const response = await POST(request("not-json"));
 
@@ -89,5 +102,15 @@ describe("POST /api/telegram/checkin", () => {
       expect.objectContaining({ user_id: "user-1", checkin_id: "checkin-1" }),
       { onConflict: "user_id,entry_date" },
     );
+  });
+
+  it("handles repeated requests with the same conflict targets", async () => {
+    const { checkinQuery, journalQuery } = configureSupabase();
+
+    await POST(request(JSON.stringify(validPayload)));
+    await POST(request(JSON.stringify(validPayload)));
+
+    expect(checkinQuery.upsert).toHaveBeenCalledTimes(2);
+    expect(journalQuery.upsert).toHaveBeenCalledTimes(2);
   });
 });
