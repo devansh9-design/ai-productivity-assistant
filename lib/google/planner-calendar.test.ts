@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getOrCreatePlannerCalendar } from "@/lib/google/planner-calendar";
+import { getOrCreatePlannerCalendar, updatePlannerEvent, deletePlannerEvent } from "@/lib/google/planner-calendar";
 import * as serviceRoleModule from "@/lib/supabase/service-role";
 
 const originalFetch = global.fetch;
@@ -159,5 +159,63 @@ describe("getOrCreatePlannerCalendar", () => {
       getOrCreatePlannerCalendar("user-1", "access-token"),
     ).rejects.toThrow("Could not verify AI Planner calendar (500).");
     expect(db.upsert).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("planner event reconciliation", () => {
+  it("updates an existing event in place", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      status: 200,
+      text: async () => JSON.stringify({ id: "google-event-1" }),
+    } as Response);
+
+    await updatePlannerEvent("access-token", "planner-calendar", "google-event-1", {
+      planDate: "2026-09-11",
+      timeZone: "Asia/Kolkata",
+      title: "DSA",
+      startTime: "09:00:00",
+      endTime: "10:00:00",
+      dailyPlanId: "plan-1",
+      planBlockId: "block-1",
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "https://www.googleapis.com/calendar/v3/calendars/planner-calendar/events/google-event-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
+  it("treats a missing external event as recoverable by the caller", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      status: 404,
+      text: async () => "not found",
+    } as Response);
+
+    await expect(
+      updatePlannerEvent("access-token", "planner-calendar", "missing-event", {
+        planDate: "2026-09-11",
+        timeZone: "Asia/Kolkata",
+        title: "DSA",
+        startTime: "09:00",
+        endTime: "10:00",
+        dailyPlanId: "plan-1",
+        planBlockId: "block-1",
+      }),
+    ).rejects.toThrow("no longer exists");
+  });
+
+  it("deletes only the requested planner event", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      status: 204,
+      text: async () => "",
+    } as Response);
+
+    await deletePlannerEvent("access-token", "planner-calendar", "google-event-1");
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "https://www.googleapis.com/calendar/v3/calendars/planner-calendar/events/google-event-1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
   });
 });
