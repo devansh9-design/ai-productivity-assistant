@@ -230,7 +230,6 @@ export async function confirmPlan(formData: FormData) {
     // Reconcile the confirmed plan against stored Google event IDs. Existing
     // AI Planner events are updated in place; missing ones are created. This
     // makes retries idempotent and preserves external event IDs.
-    const serviceRole = createServiceRoleClient();
 
     const { data: dayPlans, error: dayPlansError } = await serviceRole
       .from("daily_plans")
