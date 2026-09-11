@@ -22,11 +22,12 @@ function request(body: Record<string, unknown>) {
 
 describe("Telegram plan routes", () => {
   const rpc = vi.fn();
+  const from = vi.fn();
 
   beforeEach(() => {
     process.env.TELEGRAM_CHECKIN_WEBHOOK_SECRET = "test-secret";
     rpc.mockReset().mockResolvedValue({ data: { ok: true, plan: null, blocks: [], unscheduled: [] }, error: null });
-    createServiceRoleClient.mockReset().mockReturnValue({ rpc });
+    createServiceRoleClient.mockReset().mockReturnValue({ rpc, from });
   });
 
   it.each([
