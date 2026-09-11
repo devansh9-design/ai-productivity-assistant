@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 
 const navigation = [
   { href: "/today", label: "Today" },
+  { href: "/assistant", label: "Assistant" },
   { href: "/tasks", label: "Tasks" },
   { href: "/goals", label: "Goals" },
   { href: "/projects", label: "Projects" },
