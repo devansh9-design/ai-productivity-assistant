@@ -311,6 +311,71 @@ export async function deletePlannerEventsForDate(
  * Creates one timed Google Calendar event for a confirmed plan block.
  * Only callers that have already filtered plan blocks to task work should use this.
  */
+export async function updatePlannerEvent(
+  accessToken: string,
+  calendarId: string,
+  googleEventId: string,
+  input: PlannerEventInput,
+): Promise<void> {
+  const result = await googleRequest<GoogleEventResource>(
+    accessToken,
+    `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(googleEventId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        summary: input.title,
+        description: `AI Planner work block. Plan: ${input.dailyPlanId}. Block: ${input.planBlockId}.`,
+        start: {
+          dateTime: `${input.planDate}T${googleTime(input.startTime)}`,
+          timeZone: input.timeZone,
+        },
+        end: {
+          dateTime: `${input.planDate}T${googleTime(input.endTime)}`,
+          timeZone: input.timeZone,
+        },
+        extendedProperties: {
+          private: {
+            app: "ai-productivity-assistant",
+            dailyPlanId: input.dailyPlanId,
+            planBlockId: input.planBlockId,
+          },
+        },
+      }),
+    },
+  );
+
+  if (result.status === 404 || result.status === 410) {
+    throw new Error(`AI Planner event ${googleEventId} no longer exists.`);
+  }
+  if (result.status !== 200) {
+    const apiError = result.body as GoogleApiError | null;
+    throw new Error(
+      apiError?.error?.message ??
+        `Could not update AI Planner event ${googleEventId} (${result.status}).`,
+    );
+  }
+}
+
+export async function deletePlannerEvent(
+  accessToken: string,
+  calendarId: string,
+  googleEventId: string,
+): Promise<void> {
+  const result = await googleRequest<unknown>(
+    accessToken,
+    `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(googleEventId)}`,
+    { method: "DELETE" },
+  );
+
+  if (![200, 204, 404, 410].includes(result.status)) {
+    const apiError = result.body as GoogleApiError | null;
+    throw new Error(
+      apiError?.error?.message ??
+        `Could not delete AI Planner event ${googleEventId} (${result.status}).`,
+    );
+  }
+}
+
 export async function createPlannerEvent(
   accessToken: string,
   calendarId: string,
