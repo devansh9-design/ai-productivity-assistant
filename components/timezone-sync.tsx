@@ -1,38 +1,62 @@
 "use client";
 
-import { useEffect } from "react";
-
-export const TIMEZONE_COOKIE_NAME = "tz";
-
-function readCookie(name: string): string | null {
-  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
-}
+import { useEffect, useState } from "react";
+import { TIMEZONE_COOKIE_NAME } from "@/lib/tasks/timezone";
 
 /**
- * Renders nothing. On mount, reads the browser's IANA timezone
- * (e.g. "Asia/Kolkata") and writes it to a cookie once, so Server
- * Components (the Tasks page's "Today"/"Overdue"/"Due soon" filters) can
- * compute the user's local calendar date without guessing the server
- * process's timezone.
+ * Client component that synchronizes the browser's IANA timezone
+ * (e.g. "Asia/Kolkata") into a cookie so that Server Actions and
+ * Server Components can read the user's local timezone.
  *
- * Only writes when the cookie is missing or stale, so this does not cause
- * a write (and therefore a route revalidation) on every render.
+ * Uses useEffect (runs after first render, before any user interaction).
+ * Does NOT URL-encode the value — IANA timezone strings contain only
+ * safe cookie characters (alphanumeric, slash, underscore, hyphen).
+ *
+ * Also exposes a hidden diagnostic element (data-tz-status) that can
+ * be inspected in DevTools to confirm the cookie was written.
  */
 export function TimezoneSync() {
+  const [status, setStatus] = useState<string>("pending");
+  const [detectedTz, setDetectedTz] = useState<string>("");
+
   useEffect(() => {
     try {
-      const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      if (!detected) return;
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (!tz) {
+        setStatus("no-timezone-detected");
+        return;
+      }
+      setDetectedTz(tz);
 
-      if (readCookie(TIMEZONE_COOKIE_NAME) === detected) return;
+      // Read existing cookie value (raw, no decoding)
+      const existing = document.cookie
+        .split("; ")
+        .find((c) => c.startsWith(`${TIMEZONE_COOKIE_NAME}=`))
+        ?.split("=")[1];
 
-      document.cookie = `${TIMEZONE_COOKIE_NAME}=${encodeURIComponent(detected)}; path=/; max-age=31536000; SameSite=Lax`;
+      if (existing === tz) {
+        setStatus("already-set");
+        return;
+      }
+
+      // Write cookie WITHOUT encodeURIComponent.
+      // IANA timezone strings (e.g. "Asia/Kolkata", "America/New_York")
+      // contain only RFC 6265-safe characters.
+      document.cookie = `${TIMEZONE_COOKIE_NAME}=${tz}; path=/; max-age=31536000; SameSite=Lax`;
+      setStatus("written");
     } catch {
-      // Intl.DateTimeFormat is unsupported in some very old browsers;
-      // the server-side default timezone fallback covers this case.
+      setStatus("error");
     }
   }, []);
 
-  return null;
+  // Hidden diagnostic element — visible in DevTools, invisible to user.
+  // Will be removed after timezone verification passes.
+  return (
+    <span
+      data-tz-status={status}
+      data-tz-detected={detectedTz}
+      style={{ display: "none" }}
+      aria-hidden="true"
+    />
+  );
 }

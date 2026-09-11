@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/require-user";
 import { resolveCheckinInput } from "@/lib/checkins/validate";
-import { TIMEZONE_COOKIE_NAME } from "@/components/timezone-sync";
+import { TIMEZONE_COOKIE_NAME } from "@/lib/tasks/timezone";
 import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
 
 /**

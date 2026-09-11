@@ -6,7 +6,7 @@ import { StatusBadge, PriorityBadge, EmptyState } from "@/components/status-badg
 import { ActionForm } from "@/components/action-form";
 import { ActionSubmitButton } from "@/components/action-submit-button";
 import { TaskActionForm } from "@/components/task-action-form";
-import { TIMEZONE_COOKIE_NAME } from "@/components/timezone-sync";
+import { TIMEZONE_COOKIE_NAME } from "@/lib/tasks/timezone";
 import { DEFAULT_TASK_FILTER, TASK_FILTERS, filterTasks, isTaskFilter, type TaskFilter } from "@/lib/tasks/filters";
 import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
 import type { Goal, Milestone, Project, Task } from "@/lib/types";

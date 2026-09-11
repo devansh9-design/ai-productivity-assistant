@@ -10,7 +10,7 @@ export function useActionFormPending() {
 }
 
 interface ActionFormProps {
-  action: (formData: FormData) => Promise<unknown>;
+  action: (formData: FormData) => Promise<{ error: string } | void | undefined | unknown>;
   children: ReactNode;
   className?: string;
   resetOnSuccess?: boolean;
@@ -38,8 +38,12 @@ export function ActionForm({ action, children, className, resetOnSuccess = true 
 
     startTransition(async () => {
       try {
-        await action(formData);
-        if (resetOnSuccess) form.reset();
+        const result = await action(formData) as { error?: string } | undefined;
+        if (result && typeof result === "object" && "error" in result && typeof result.error === "string") {
+          setError(result.error);
+        } else {
+          if (resetOnSuccess) form.reset();
+        }
       } catch (submitError) {
         setError(submitError instanceof Error ? submitError.message : "Something went wrong. Please try again.");
       }

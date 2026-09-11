@@ -3,10 +3,8 @@ import {
   type AvailabilityRuleInput,
   type FixedCommitmentInput,
   type SchedulerTask,
-  type ScheduledBlock,
   type UnscheduledTask,
 } from "@/lib/scheduler/engine";
-import type { PlanBlock } from "@/lib/types";
 
 export interface ExistingManualBlock {
   id: string;
@@ -18,6 +16,13 @@ export interface ExistingManualBlock {
   is_manual: boolean;
 }
 
+export interface CalendarEventInput {
+  googleEventId: string;
+  title: string;
+  startTime: string; // "HH:MM"
+  endTime: string; // "HH:MM"
+}
+
 export interface PlanDraftInput {
   date: string;
   weekday: number;
@@ -25,11 +30,12 @@ export interface PlanDraftInput {
   fixedCommitments: FixedCommitmentInput[];
   tasks: SchedulerTask[];
   existingManualBlocks?: ExistingManualBlock[];
+  calendarEvents?: CalendarEventInput[];
 }
 
 export interface MergedBlock {
   taskId: string | null;
-  kind: "task" | "buffer";
+  kind: "task" | "buffer" | "calendar";
   title: string;
   startTime: string;
   endTime: string;
@@ -76,14 +82,26 @@ export function buildDraftPlan(input: PlanDraftInput): PlanDraftResult {
     fixedCommitments,
     tasks,
     existingManualBlocks = [],
+    calendarEvents = [],
   } = input;
 
+  // Convert calendar events to fixed commitments so the engine blocks out their time
+  const calendarAsFixed: FixedCommitmentInput[] = calendarEvents.map((e) => ({
+    id: e.googleEventId,
+    date,
+    title: e.title,
+    startTime: e.startTime,
+    endTime: e.endTime,
+  }));
+  const allFixedCommitments = [...fixedCommitments, ...calendarAsFixed];
+
   // 1. Calculate baseline working availability & buffer from pure schedule rules (no manual blocks as fixed)
+  // Calendar events reduce available working time, same as fixed commitments
   const baseSchedule = generateSchedule({
     date,
     weekday,
     availabilityRules,
-    fixedCommitments,
+    fixedCommitments: allFixedCommitments,
     tasks: [],
   });
 
@@ -99,7 +117,7 @@ export function buildDraftPlan(input: PlanDraftInput): PlanDraftResult {
       r.kind !== "working" &&
       r.kind !== "high_focus",
   );
-  const dayCommitments = fixedCommitments.filter((c) => c.date === date);
+  const dayCommitments = allFixedCommitments.filter((c) => c.date === date);
 
   const validManualBlocks: ExistingManualBlock[] = [];
   const unscheduled: UnscheduledTask[] = [];
@@ -193,12 +211,12 @@ export function buildDraftPlan(input: PlanDraftInput): PlanDraftResult {
     endTime: b.end_time.slice(0, 5),
   }));
 
-  // Run engine with manual blocks added to fixed commitments for placement collision avoidance
+  // Run engine with manual blocks + calendar events added to fixed commitments for placement collision avoidance
   const engineResult = generateSchedule({
     date,
     weekday,
     availabilityRules,
-    fixedCommitments: [...fixedCommitments, ...manualAsFixed],
+    fixedCommitments: [...allFixedCommitments, ...manualAsFixed],
     tasks: engineTasks,
   });
 
@@ -227,15 +245,27 @@ export function buildDraftPlan(input: PlanDraftInput): PlanDraftResult {
     combinedUnscheduledMap.entries(),
   ).map(([taskId, reason]) => ({ taskId, reason }));
 
-  // Combine blocks: valid manual blocks + engine blocks
+  // Build calendar blocks for the output timeline (read-only, not stored as tasks)
+  const calendarBlocks: MergedBlock[] = calendarEvents.map((e, i) => ({
+    taskId: null,
+    kind: "calendar" as const,
+    title: e.title,
+    startTime: e.startTime + ":00",
+    endTime: e.endTime + ":00",
+    sortOrder: i,
+    isManual: false,
+  }));
+
+  // Combine blocks: calendar blocks + valid manual blocks + engine blocks
   const mergedBlocks: MergedBlock[] = [
+    ...calendarBlocks,
     ...validManualBlocks.map((b, i) => ({
       taskId: b.task_id,
       kind: b.kind,
       title: b.title,
       startTime: b.start_time.slice(0, 5) + ":00",
       endTime: b.end_time.slice(0, 5) + ":00",
-      sortOrder: i,
+      sortOrder: calendarBlocks.length + i,
       isManual: true,
     })),
     ...engineResult.blocks.map((block, i) => ({
@@ -244,7 +274,7 @@ export function buildDraftPlan(input: PlanDraftInput): PlanDraftResult {
       title: block.title,
       startTime: block.startTime,
       endTime: block.endTime,
-      sortOrder: validManualBlocks.length + i,
+      sortOrder: calendarBlocks.length + validManualBlocks.length + i,
       isManual: false,
     })),
   ].sort(

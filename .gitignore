@@ -15,5 +15,5 @@ coverage/
 .DS_Store
 *.tsbuildinfo
 
-# Graphify generated files
+# Graphify generated repository graph
 graphify-out/

@@ -24,9 +24,14 @@ function BlockCard({ block, isDraft }: { block: PlanBlock; isDraft: boolean }) {
   const bgClass =
     block.kind === "buffer"
       ? "bg-amber-50 text-amber-800 border-amber-200"
-      : block.is_manual
-        ? "bg-indigo-50 text-indigo-800 border-indigo-200 ring-2 ring-emerald-400"
-        : "bg-indigo-50 text-indigo-800 border-indigo-200";
+      : block.kind === "calendar"
+        ? "bg-violet-50 text-violet-800 border-violet-200"
+        : block.is_manual
+          ? "bg-indigo-50 text-indigo-800 border-indigo-200 ring-2 ring-emerald-400"
+          : "bg-indigo-50 text-indigo-800 border-indigo-200";
+
+  // Calendar blocks are always read-only — no edit/remove regardless of plan status
+  const isEditable = isDraft && block.kind !== "calendar";
 
   return (
     <div className={`rounded-lg border px-3 py-2 text-sm ${bgClass}`}>
@@ -35,14 +40,14 @@ function BlockCard({ block, isDraft }: { block: PlanBlock; isDraft: boolean }) {
           <span className="font-semibold">
             {shortTime(block.start_time)}-{shortTime(block.end_time)}
           </span>
-          <span>{block.kind === "buffer" ? "Buffer" : block.title}</span>
+          <span>{block.kind === "buffer" ? "Buffer" : block.kind === "calendar" ? `📅 ${block.title}` : block.title}</span>
           {block.is_manual && (
             <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
               manual
             </span>
           )}
         </div>
-        {isDraft && (
+        {isEditable && (
           <div className="flex items-center gap-1">
             <button
               type="button"
@@ -63,7 +68,7 @@ function BlockCard({ block, isDraft }: { block: PlanBlock; isDraft: boolean }) {
           </div>
         )}
       </div>
-      {isDraft && editing && (
+      {isEditable && editing && (
         <ActionForm action={editPlanBlock} className="mt-2 flex items-end gap-2">
           <input type="hidden" name="block_id" value={block.id} />
           <label className="text-xs">

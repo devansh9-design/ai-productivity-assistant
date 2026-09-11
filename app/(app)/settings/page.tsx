@@ -1,7 +1,10 @@
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ActionForm } from "@/components/action-form";
 import { ActionSubmitButton } from "@/components/action-submit-button";
 import { createAvailabilityRule, createFixedCommitment, deleteAvailabilityRule, deleteFixedCommitment } from "@/lib/scheduler/actions";
+import { getGoogleConnectUrl, disconnectGoogleCalendar } from "@/lib/google/actions";
+import { isGoogleCalendarConnected } from "@/lib/google/oauth";
 import type { AvailabilityRule, FixedCommitment } from "@/lib/types";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -10,12 +13,33 @@ function shortTime(value: string) {
   return value.slice(0, 5);
 }
 
-export default async function SettingsPage() {
+async function connectGoogleCalendar() {
+  "use server";
+  const url = await getGoogleConnectUrl();
+  redirect(url);
+}
+
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const [{ data: rules, error: rulesError }, { data: commitments, error: commitmentsError }] = await Promise.all([
     supabase.from("availability_rules").select("*").order("weekday").order("start_time").returns<AvailabilityRule[]>(),
     supabase.from("fixed_commitments").select("*").order("commitment_date").order("start_time").returns<FixedCommitment[]>(),
   ]);
+
+  // Google Calendar connection status (service-role check, never exposes tokens)
+  const googleConnected = user ? await isGoogleCalendarConnected(user.id) : false;
+
+  const params = await searchParams;
+  const googleStatus = typeof params.google === "string" ? params.google : null;
+  const googleError = typeof params.google_error === "string" ? params.google_error : null;
 
   return (
     <section aria-labelledby="page-title" className="mx-auto max-w-4xl">
@@ -71,6 +95,53 @@ export default async function SettingsPage() {
         {!commitmentsError && (commitments ?? []).length === 0 && <p className="mt-3 text-sm text-slate-600">No fixed commitments saved.</p>}
         <div className="mt-3 space-y-2">
           {(commitments ?? []).map((commitment) => <div key={commitment.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700"><span>{commitment.commitment_date} · {shortTime(commitment.start_time)} to {shortTime(commitment.end_time)} · {commitment.title}</span><form action={deleteFixedCommitment}><input type="hidden" name="id" value={commitment.id} /><button className="font-medium text-rose-700 hover:text-rose-800">Remove</button></form></div>)}
+        </div>
+      </div>
+
+      {/* ----- Day 6: Google Calendar integration ----- */}
+      <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+        <h2 className="text-lg font-semibold text-slate-900">Google Calendar</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Connect your Google Calendar to automatically block out calendar events when generating your daily plan. Only read access is requested.
+        </p>
+
+        {googleStatus === "connected" && (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+            Google Calendar connected successfully.
+          </p>
+        )}
+        {googleError && (
+          <p role="alert" className="mt-3 rounded-lg bg-rose-50 px-4 py-2 text-sm text-rose-700">
+            Google Calendar connection failed: {googleError === "oauth_state_mismatch" ? "Security validation failed. Please try again." : googleError === "token_exchange_failed" ? "Could not complete authorization. Please try again." : googleError}
+          </p>
+        )}
+
+        <div className="mt-4">
+          {googleConnected ? (
+            <div className="flex items-center gap-4">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-800">
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                Connected
+              </span>
+              <ActionForm action={disconnectGoogleCalendar} resetOnSuccess={false}>
+                <ActionSubmitButton
+                  pendingLabel="Disconnecting..."
+                  className="rounded-lg border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
+                >
+                  Disconnect
+                </ActionSubmitButton>
+              </ActionForm>
+            </div>
+          ) : (
+            <ActionForm action={connectGoogleCalendar} resetOnSuccess={false}>
+              <ActionSubmitButton
+                pendingLabel="Connecting..."
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+              >
+                Connect Google Calendar
+              </ActionSubmitButton>
+            </ActionForm>
+          )}
         </div>
       </div>
     </section>
