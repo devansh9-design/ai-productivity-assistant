@@ -14,8 +14,9 @@ import { getValidAccessToken } from "@/lib/google/oauth";
 import { fetchCalendarEvents } from "@/lib/google/calendar";
 import {
   createPlannerEvent,
-  deletePlannerEventsForDate,
+  deletePlannerEvent,
   getOrCreatePlannerCalendar,
+  updatePlannerEvent,
 } from "@/lib/google/planner-calendar";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { DailyPlan, PlanBlock, Task } from "@/lib/types";
@@ -226,41 +227,58 @@ export async function confirmPlan(formData: FormData) {
     const calendarId = await getOrCreatePlannerCalendar(user.id, tokenResult.token);
     const serviceRole = createServiceRoleClient();
 
-    // Publishing replaces the generated AI Planner schedule for this date.
-    // Only events carrying our private app marker are deleted; normal Google
-    // Calendar events are never touched.
-    await deletePlannerEventsForDate(
-      tokenResult.token,
-      calendarId,
-      plan.plan_date,
-      timeZone,
-    );
+    // Reconcile the confirmed plan against stored Google event IDs. Existing
+    // AI Planner events are updated in place; missing ones are created. This
+    // makes retries idempotent and preserves external event IDs.
+    const serviceRole = createServiceRoleClient();
 
-    // Clear mappings for every plan version on this date, including mappings
-    // left behind by older confirmed plans or partial publishes.
     const { data: dayPlans, error: dayPlansError } = await serviceRole
       .from("daily_plans")
       .select("id")
       .eq("user_id", user.id)
       .eq("plan_date", plan.plan_date);
     if (dayPlansError) {
-      throw new Error(`Could not clear previous AI Planner mappings: ${dayPlansError.message}`);
+      throw new Error(`Could not load AI Planner mappings: ${dayPlansError.message}`);
     }
 
     const dayPlanIds = (dayPlans ?? []).map((item) => item.id);
-    if (dayPlanIds.length > 0) {
-      const { error: mappingDeleteError } = await serviceRole
+    const { data: existingMappings, error: mappingsError } = await serviceRole
+      .from("google_planner_events")
+      .select("id,daily_plan_id,plan_block_id,google_event_id")
+      .eq("user_id", user.id)
+      .in("daily_plan_id", dayPlanIds.length ? dayPlanIds : [plan.id]);
+
+    if (mappingsError) {
+      throw new Error(`Could not load existing AI Planner mappings: ${mappingsError.message}`);
+    }
+
+    const currentBlockIds = new Set((blocks ?? []).map((block) => block.id));
+    const currentMappings = new Map(
+      (existingMappings ?? [])
+        .filter((mapping) => mapping.daily_plan_id === plan.id)
+        .map((mapping) => [mapping.plan_block_id, mapping]),
+    );
+
+    // Remove mappings/events belonging to superseded plan versions or blocks
+    // that are no longer part of the confirmed plan.
+    for (const mapping of existingMappings ?? []) {
+      if (mapping.daily_plan_id === plan.id && currentBlockIds.has(mapping.plan_block_id)) {
+        continue;
+      }
+
+      await deletePlannerEvent(tokenResult.token, calendarId, mapping.google_event_id);
+      const { error: deleteMappingError } = await serviceRole
         .from("google_planner_events")
         .delete()
-        .eq("user_id", user.id)
-        .in("daily_plan_id", dayPlanIds);
-      if (mappingDeleteError) {
-        throw new Error(`Could not clear previous AI Planner mappings: ${mappingDeleteError.message}`);
+        .eq("id", mapping.id)
+        .eq("user_id", user.id);
+      if (deleteMappingError) {
+        throw new Error(`Could not remove stale AI Planner mapping: ${deleteMappingError.message}`);
       }
     }
 
     for (const block of blocks ?? []) {
-      const googleEventId = await createPlannerEvent(tokenResult.token, calendarId, {
+      const input = {
         planDate: plan.plan_date,
         timeZone,
         title: block.title,
@@ -268,9 +286,35 @@ export async function confirmPlan(formData: FormData) {
         endTime: block.end_time,
         dailyPlanId: plan.id,
         planBlockId: block.id,
-      });
+      };
 
-      const { error: mappingError } = await serviceRole
+      const existing = currentMappings.get(block.id);
+      if (existing) {
+        try {
+          await updatePlannerEvent(tokenResult.token, calendarId, existing.google_event_id, input);
+          continue;
+        } catch (updateError) {
+          // A deleted external event can be recreated and remapped without
+          // creating a duplicate when Google reports the stored ID is gone.
+          if (!(updateError instanceof Error) || !updateError.message.includes("no longer exists")) {
+            throw updateError;
+          }
+
+          const googleEventId = await createPlannerEvent(tokenResult.token, calendarId, input);
+          const { error: mappingUpdateError } = await serviceRole
+            .from("google_planner_events")
+            .update({ google_event_id: googleEventId })
+            .eq("id", existing.id)
+            .eq("user_id", user.id);
+          if (mappingUpdateError) {
+            throw new Error(`Google event ${googleEventId} was created, but its mapping could not be updated: ${mappingUpdateError.message}`);
+          }
+          continue;
+        }
+      }
+
+      const googleEventId = await createPlannerEvent(tokenResult.token, calendarId, input);
+      const { error: mappingInsertError } = await serviceRole
         .from("google_planner_events")
         .insert({
           user_id: user.id,
@@ -278,8 +322,8 @@ export async function confirmPlan(formData: FormData) {
           plan_block_id: block.id,
           google_event_id: googleEventId,
         });
-      if (mappingError) {
-        throw new Error(`Google event ${googleEventId} was created, but its local mapping could not be saved: ${mappingError.message}`);
+      if (mappingInsertError) {
+        throw new Error(`Google event ${googleEventId} was created, but its local mapping could not be saved: ${mappingInsertError.message}`);
       }
     }
   } catch (publishError) {
