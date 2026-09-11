@@ -14,6 +14,7 @@ import { getValidAccessToken } from "@/lib/google/oauth";
 import { fetchCalendarEvents } from "@/lib/google/calendar";
 import {
   createPlannerEvent,
+  deletePlannerEventsForDate,
   getOrCreatePlannerCalendar,
 } from "@/lib/google/planner-calendar";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -224,6 +225,39 @@ export async function confirmPlan(formData: FormData) {
   try {
     const calendarId = await getOrCreatePlannerCalendar(user.id, tokenResult.token);
     const serviceRole = createServiceRoleClient();
+
+    // Publishing replaces the generated AI Planner schedule for this date.
+    // Only events carrying our private app marker are deleted; normal Google
+    // Calendar events are never touched.
+    await deletePlannerEventsForDate(
+      tokenResult.token,
+      calendarId,
+      plan.plan_date,
+      timeZone,
+    );
+
+    // Clear mappings for every plan version on this date, including mappings
+    // left behind by older confirmed plans or partial publishes.
+    const { data: dayPlans, error: dayPlansError } = await serviceRole
+      .from("daily_plans")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("plan_date", plan.plan_date);
+    if (dayPlansError) {
+      throw new Error(`Could not clear previous AI Planner mappings: ${dayPlansError.message}`);
+    }
+
+    const dayPlanIds = (dayPlans ?? []).map((item) => item.id);
+    if (dayPlanIds.length > 0) {
+      const { error: mappingDeleteError } = await serviceRole
+        .from("google_planner_events")
+        .delete()
+        .eq("user_id", user.id)
+        .in("daily_plan_id", dayPlanIds);
+      if (mappingDeleteError) {
+        throw new Error(`Could not clear previous AI Planner mappings: ${mappingDeleteError.message}`);
+      }
+    }
 
     for (const block of blocks ?? []) {
       const googleEventId = await createPlannerEvent(tokenResult.token, calendarId, {
