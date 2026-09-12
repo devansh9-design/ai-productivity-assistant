@@ -181,13 +181,6 @@ export async function POST(request: NextRequest) {
 
     const reason = parts.slice(2).join(" ").trim();
 
-    if (isSkip && !reason) {
-      return NextResponse.json(
-        { error: "Usage: /skip <task-id> <reason>" },
-        { status: 400 },
-      );
-    }
-
     const { data: task, error: lookupError } = await supabase
       .from("tasks")
       .select("id,title,status")
@@ -206,6 +199,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate the skip reason only when the task actually needs to be skipped.
+    // This also lets a repeated /skip remain idempotent even if Telegram/n8n
+    // drops the reason on a retry.
+    if (isSkip && task.status !== "skipped" && !reason) {
+      return NextResponse.json(
+        { error: "Usage: /skip <task-id> <reason>" },
+        { status: 400 },
+      );
+    }
+
     // Idempotency: repeated /done on an already completed task must not
     // issue another database update.
     if (!isSkip && task.status === "completed") {
@@ -216,6 +219,19 @@ export async function POST(request: NextRequest) {
         task_id: task.id,
         already_completed: true,
         text: `ℹ️ Already completed: ${task.title}`,
+      });
+    }
+
+    // Idempotency: repeated /skip on an already skipped task must not
+    // issue another database update, even if a retry has no reason.
+    if (isSkip && task.status === "skipped") {
+      return NextResponse.json({
+        ok: true,
+        command: "skip",
+        chat_id: chatId,
+        task_id: task.id,
+        already_skipped: true,
+        text: `ℹ️ Already skipped: ${task.title}${task.status ? "" : ""}`,
       });
     }
 
