@@ -87,6 +87,9 @@ function formatToday(data: TelegramTodayData | null | undefined) {
   return lines.join("\n").slice(0, 3900);
 }
 
+const TASK_ID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export async function POST(request: NextRequest) {
   const secret = process.env.TELEGRAM_CHECKIN_WEBHOOK_SECRET;
   const suppliedSecret = request.headers.get("x-telegram-checkin-secret");
@@ -102,8 +105,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  const rawCommand = clean(body.command) || clean(body.text) || "";
+  const parts = rawCommand.trim().split(/\s+/);
+  const command = (parts[0] || "").toLowerCase();
+
   const chatId = clean(body.chat_id);
-  const command = (clean(body.command) || clean(body.text) || "").toLowerCase().split(/\s+/)[0];
 
   if (!chatId) {
     return NextResponse.json({ error: "chat_id is required" }, { status: 400 });
@@ -141,12 +147,109 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  if (command === "/done" || command === "done" || command === "/skip" || command === "skip") {
+    const taskId = parts[1] || "";
+    const isSkip = command === "/skip" || command === "skip";
+
+    if (!TASK_ID_REGEX.test(taskId)) {
+      return NextResponse.json(
+        {
+          error: isSkip
+            ? "Usage: /skip <task-id> <reason>"
+            : "Usage: /done <task-id>",
+        },
+        { status: 400 },
+      );
+    }
+
+    const mapping = await supabase
+      .from("telegram_chat_mappings")
+      .select("user_id")
+      .eq("chat_id", chatId)
+      .maybeSingle();
+
+    if (mapping.error) {
+      return NextResponse.json({ error: mapping.error.message }, { status: 500 });
+    }
+
+    if (!mapping.data) {
+      return NextResponse.json(
+        { error: "Telegram chat is not linked to an account." },
+        { status: 403 },
+      );
+    }
+
+    const reason = parts.slice(2).join(" ").trim();
+
+    if (isSkip && !reason) {
+      return NextResponse.json(
+        { error: "Usage: /skip <task-id> <reason>" },
+        { status: 400 },
+      );
+    }
+
+    const { data: task, error: lookupError } = await supabase
+      .from("tasks")
+      .select("id,title,status")
+      .eq("id", taskId)
+      .eq("user_id", mapping.data.user_id)
+      .maybeSingle();
+
+    if (lookupError) {
+      return NextResponse.json({ error: lookupError.message }, { status: 500 });
+    }
+
+    if (!task) {
+      return NextResponse.json(
+        { error: "Task not found for this Telegram account. Check the task ID and try again." },
+        { status: 404 },
+      );
+    }
+
+    // Idempotency: repeated /done on an already completed task must not
+    // issue another database update.
+    if (!isSkip && task.status === "completed") {
+      return NextResponse.json({
+        ok: true,
+        command: "done",
+        chat_id: chatId,
+        task_id: task.id,
+        already_completed: true,
+        text: `ℹ️ Already completed: ${task.title}`,
+      });
+    }
+
+    const update = isSkip
+      ? { status: "skipped", status_reason: reason }
+      : { status: "completed", status_reason: null };
+
+    const { error: updateError } = await supabase
+      .from("tasks")
+      .update(update)
+      .eq("id", task.id)
+      .eq("user_id", mapping.data.user_id);
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      command: isSkip ? "skip" : "done",
+      chat_id: chatId,
+      task_id: task.id,
+      text: isSkip
+        ? `⏭️ Skipped: ${task.title}\nReason: ${reason}`
+        : `✅ Completed: ${task.title}`,
+    });
+  }
+
   if (command === "/help" || command === "help" || command === "/start" || command === "start") {
     return NextResponse.json({
       ok: true,
       command: "help",
       chat_id: chatId,
-      text: "🤖 Productivity Assistant\n\n/today — show today's plan\n/plan — show today's plan\n/checkin — submit your daily check-in\n/help — show this help",
+      text: "🤖 Productivity Assistant\n\n/today — show today's plan\n/plan — show today's plan\n/checkin — submit your daily check-in\n/done <task-id> — mark your task completed\n/skip <task-id> <reason> — skip a task with a reason\n/help — show this help",
     });
   }
 
@@ -154,6 +257,6 @@ export async function POST(request: NextRequest) {
     ok: true,
     command: "unknown",
     chat_id: chatId,
-    text: "I don't know that command yet. Try /today, /checkin, or /help.",
+    text: "I don't know that command yet. Try /today, /done, /skip, /checkin, or /help.",
   });
 }
