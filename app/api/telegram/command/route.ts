@@ -260,6 +260,17 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  if (command === "/checkin" || command === "checkin") {
+    return NextResponse.json({
+      ok: true,
+      command: "checkin",
+      chat_id: chatId,
+      plan_date: planDate,
+      text: "📝 Evening check-in\n\nReply with your check-in details in this format:\nMood: 1-5\nEnergy: low/medium/high\nWins: ...\nLesson: ...\nDistractions: ...\nReflection: ...",
+      next_step: "Send the check-in details to the /api/telegram/checkin endpoint.",
+    });
+  }
+
   if (command === "/help" || command === "help" || command === "/start" || command === "start") {
     return NextResponse.json({
       ok: true,
