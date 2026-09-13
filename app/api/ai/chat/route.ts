@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { openai } from "@/lib/openai";
+import { getOpenAIClient } from "@/lib/openai";
 import {
   PROPOSAL_TYPES,
   type PlanningProposal,
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response = await openai.responses.create({
+    const response = await getOpenAIClient().responses.create({
       model: "gpt-5-mini",
       input: [
         {
