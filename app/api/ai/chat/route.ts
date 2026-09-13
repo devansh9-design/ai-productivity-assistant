@@ -9,20 +9,36 @@ export const runtime = "nodejs";
 type ChatRequest = { message?: string };
 
 const proposalSchema = {
-  type: "object", additionalProperties: false,
+  type: "object",
+  additionalProperties: false,
   properties: {
     type: { type: "string", enum: [...PROPOSAL_TYPES] },
-    summary: { type: "string" }, reason: { type: "string" },
+    summary: { type: "string" },
+    reason: { type: "string" },
     items: {
-      type: "array", maxItems: 50,
+      type: "array",
+      maxItems: 50,
       items: {
-        type: "object", additionalProperties: false,
+        type: "object",
+        additionalProperties: false,
         properties: {
-          task_id: { type: "string" }, title: { type: "string" },
-          reason: { type: "string" }, start_time: { type: "string" },
-          end_time: { type: "string" }, estimated_minutes: { type: "integer" },
+          task_id: { type: "string" },
+          title: { type: "string" },
+          reason: { type: "string" },
+          start_time: { type: "string" },
+          end_time: { type: "string" },
+          estimated_minutes: { type: "integer" },
         },
-        required: ["reason"],
+        // OpenAI strict JSON schemas require every declared property to be required.
+        // Empty strings/zero are used when a field is not applicable.
+        required: [
+          "task_id",
+          "title",
+          "reason",
+          "start_time",
+          "end_time",
+          "estimated_minutes",
+        ],
       },
     },
   },
@@ -30,7 +46,11 @@ const proposalSchema = {
 } as const;
 
 function extractJson(text: string): unknown {
-  try { return JSON.parse(text); } catch { return null; }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -38,8 +58,12 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as ChatRequest;
     const message = body.message?.trim();
 
-    if (!message) return NextResponse.json({ error: "message is required" }, { status: 400 });
-    if (message.length > 4000) return NextResponse.json({ error: "message is too long" }, { status: 400 });
+    if (!message) {
+      return NextResponse.json({ error: "message is required" }, { status: 400 });
+    }
+    if (message.length > 4000) {
+      return NextResponse.json({ error: "message is too long" }, { status: 400 });
+    }
 
     const context = await getAIPlanningContext();
 
@@ -58,6 +82,7 @@ export async function POST(request: NextRequest) {
             "Never create overlapping schedule items. Calendar connected=false means availability is unknown; do not claim a slot is free.",
             "Do not perform or claim to perform database, calendar, or task writes.",
             "Every proposal item must include a concise reason explaining why it was chosen or deferred.",
+            "For fields that do not apply, return an empty string or 0 rather than omitting the field.",
             "The user must confirm the proposal before any write occurs.",
             "USER CONTEXT JSON:",
             JSON.stringify(context),
@@ -83,7 +108,11 @@ export async function POST(request: NextRequest) {
 
     if (!validation.ok) {
       return NextResponse.json(
-        { ok: false, error: "AI returned an invalid planning proposal.", details: validation.error },
+        {
+          ok: false,
+          error: "AI returned an invalid planning proposal.",
+          details: validation.error,
+        },
         { status: 422 },
       );
     }
@@ -100,10 +129,14 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("AI chat error:", error);
-    const message = error instanceof Error ? error.message : "Unable to process AI request.";
+    const message =
+      error instanceof Error ? error.message : "Unable to process AI request.";
     if (message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    return NextResponse.json({ error: "Unable to process AI request." }, { status: 500 });
+    return NextResponse.json(
+      { error: "Unable to process AI request." },
+      { status: 500 },
+    );
   }
 }
