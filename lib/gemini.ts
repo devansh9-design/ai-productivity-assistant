@@ -27,10 +27,10 @@ export async function generateGeminiJson({
   responseSchema,
 }: GeminiGenerateOptions): Promise<unknown> {
   const response = await fetch(
-    `${GEMINI_API_URL}?key=${encodeURIComponent(getGeminiApiKey())}`,
+    GEMINI_API_URL,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {\n        "Content-Type": "application/json",\n        "x-goog-api-key": getGeminiApiKey(),\n      },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig: {
