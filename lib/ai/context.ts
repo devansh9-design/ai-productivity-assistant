@@ -10,6 +10,8 @@ export type AIPlanningContext = {
   date: string;
   timezone: string;
   preferences: { email: string | null };
+  availability: Array<{ weekday: number; kind: string; start_time: string; end_time: string }>;
+  fixed_commitments: Array<{ title: string; start_time: string; end_time: string }>;
   plan: {
     id: string; version: number; status: string; buffer_minutes: number;
     blocks: Array<{ task_id: string | null; kind: string; title: string; start_time: string; end_time: string; is_manual: boolean }>;
@@ -43,7 +45,7 @@ export async function getAIPlanningContext(): Promise<AIPlanningContext> {
   catch { throw new Error("Invalid timezone"); }
   const date = getTodayISODate(timezone);
 
-  const [profileResult, tasksResult, goalsResult, milestonesResult, planResult, checkinsResult, journalsResult] =
+  const [profileResult, tasksResult, goalsResult, milestonesResult, planResult, checkinsResult, journalsResult, availabilityResult, commitmentsResult] =
     await Promise.all([
       supabase.from("profiles").select("email").eq("id", user.id).maybeSingle(),
       supabase.from("tasks")
@@ -59,10 +61,12 @@ export async function getAIPlanningContext(): Promise<AIPlanningContext> {
         .eq("type", "evening").order("checkin_date", { ascending: false }).limit(7),
       supabase.from("journal_entries").select("entry_date,reflection")
         .order("entry_date", { ascending: false }).limit(7),
+      supabase.from("availability_rules").select("weekday,kind,start_time,end_time").eq("weekday", new Date(`${date}T00:00:00Z`).getUTCDay()),
+      supabase.from("fixed_commitments").select("title,start_time,end_time").eq("commitment_date", date),
     ]);
 
   const firstError = profileResult.error ?? tasksResult.error ?? goalsResult.error ??
-    milestonesResult.error ?? planResult.error ?? checkinsResult.error ?? journalsResult.error;
+    milestonesResult.error ?? planResult.error ?? checkinsResult.error ?? journalsResult.error ?? availabilityResult.error ?? commitmentsResult.error;
   if (firstError) throw new Error("Could not load AI context: " + firstError.message);
 
   const tasks = tasksResult.data ?? [];
@@ -101,6 +105,8 @@ export async function getAIPlanningContext(): Promise<AIPlanningContext> {
 
   return {
     date, timezone,
+    availability: availabilityResult.data ?? [],
+    fixed_commitments: commitmentsResult.data ?? [],
     preferences: { email: profileResult.data?.email ?? null },
     plan, calendar, incomplete_tasks: tasks,
     goals: (goalsResult.data ?? []).map((goal) => ({
