@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import type { PlanningProposal } from "@/lib/ai/proposal";
+import { confirmAIProposal } from "@/lib/plans/actions";
 
 type ChatResponse = {
   ok?: boolean;
@@ -17,6 +18,8 @@ export function AIChat() {
   const [meta, setMeta] = useState<ChatResponse["context"]>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [success, setSuccess] = useState("");
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -25,6 +28,7 @@ export function AIChat() {
 
     setLoading(true);
     setError("");
+    setSuccess("");
     setProposal(null);
 
     try {
@@ -109,8 +113,43 @@ export function AIChat() {
             </div>
           )}
 
+          {proposal.type === "suggest_schedule" || proposal.type === "propose_reschedule" ? (
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={confirming}
+                onClick={async () => {
+                  setConfirming(true);
+                  setError("");
+                  setSuccess("");
+                  try {
+                    const result = await confirmAIProposal(proposal);
+                    setSuccess(result.message);
+                    setProposal(null);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Unable to confirm the proposal.");
+                  } finally {
+                    setConfirming(false);
+                  }
+                }}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {confirming ? "Confirming..." : "Confirm schedule"}
+              </button>
+              <span className="text-xs text-slate-500">Review the times above before confirming.</span>
+            </div>
+          ) : null}
+
+          {success && (
+            <p role="status" className="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              {success}
+            </p>
+          )}
+
           <div className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Preview only. No task or calendar changes have been made.
+            {proposal.type === "suggest_schedule" || proposal.type === "propose_reschedule"
+              ? "Preview only. No task or calendar changes have been made until you confirm."
+              : "Informational proposal only. No task or calendar changes have been made."}
           </div>
 
           {meta && (
