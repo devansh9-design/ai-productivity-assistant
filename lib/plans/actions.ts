@@ -20,6 +20,23 @@ import {
 } from "@/lib/google/planner-calendar";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { DailyPlan, PlanBlock, Task } from "@/lib/types";
+import { validatePlanningProposal } from "@/lib/ai/validate-proposal";
+import type { PlanningProposal } from "@/lib/ai/proposal";
+
+function timeMinutes(value: string): number {
+  const match = /^(\\d{2}):(\\d{2})(?::\\d{2})?$/.exec(value);
+  if (!match) return -1;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function intervalsOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
+  return aStart < bEnd && bStart < aEnd;
+}
+
+function normalizeProposalTime(value: string | undefined): string {
+  if (!value) return "";
+  return value.length === 5 ? value : value.slice(0, 5);
+}
 
 function requiredText(formData: FormData, key: string, label: string): string {
   const value = String(formData.get(key) ?? "").trim();
@@ -182,6 +199,129 @@ export async function generateDraftPlan() {
     return { error: planError?.message ?? "Could not save draft plan." };
   }
   revalidatePath("/today");
+}
+
+export async function confirmAIProposal(proposal: PlanningProposal) {
+  const { supabase, user } = await requireUser();
+  const validation = validatePlanningProposal(proposal);
+  if (!validation.ok) throw new Error(validation.error);
+
+  const safeProposal = validation.data;
+  if (!["suggest_schedule", "propose_reschedule"].includes(safeProposal.type)) {
+    throw new Error("Only schedule proposals can be confirmed.");
+  }
+
+  const items = safeProposal.items.filter((item) => item.start_time && item.end_time);
+  if (!items.length) throw new Error("The proposal has no scheduled work to confirm.");
+  if (items.length !== safeProposal.items.length) {
+    throw new Error("Every item in a confirmable schedule proposal must have a start and end time.");
+  }
+
+  const cookieStore = await cookies();
+  const timeZone = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value || DEFAULT_TIMEZONE;
+  let planDate: string;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    planDate = getTodayISODate(timeZone);
+  } catch {
+    throw new Error("Invalid timezone detected. Please refresh and try again.");
+  }
+
+  const taskIds = items.map((item) => item.task_id).filter((id): id is string => Boolean(id));
+  if (taskIds.length !== items.length || new Set(taskIds).size !== taskIds.length) {
+    throw new Error("Each scheduled item must reference a unique task.");
+  }
+
+  const [tasksResult, rulesResult, commitmentsResult] = await Promise.all([
+    supabase.from("tasks").select("id,title,status").eq("user_id", user.id).in("id", taskIds),
+    supabase.from("availability_rules").select("weekday,kind,start_time,end_time").eq("user_id", user.id),
+    supabase.from("fixed_commitments").select("title,start_time,end_time").eq("user_id", user.id).eq("commitment_date", planDate),
+  ]);
+  if (tasksResult.error || rulesResult.error || commitmentsResult.error) {
+    throw new Error(tasksResult.error?.message ?? rulesResult.error?.message ?? commitmentsResult.error?.message ?? "Could not validate the proposal.");
+  }
+
+  const taskMap = new Map((tasksResult.data ?? []).map((task) => [task.id, task]));
+  for (const id of taskIds) {
+    const task = taskMap.get(id);
+    if (!task) throw new Error("One or more proposed tasks no longer exist or do not belong to your account.");
+    if (["completed", "skipped"].includes(task.status)) {
+      throw new Error("Task \"" + task.title + "\" is no longer eligible for scheduling.");
+    }
+  }
+
+  const tokenResult = await getValidAccessToken(user.id);
+  if ("error" in tokenResult) {
+    throw new Error("Google Calendar must be connected before a schedule can be confirmed.");
+  }
+
+  let calendarEvents: { startTime: string; endTime: string; title: string }[];
+  try {
+    calendarEvents = await fetchCalendarEvents(tokenResult.token, planDate, timeZone);
+  } catch {
+    throw new Error("Could not refresh Google Calendar. The proposal was not applied.");
+  }
+
+  const weekday = new Date(planDate + "T00:00:00Z").getUTCDay();
+  const workingRules = (rulesResult.data ?? []).filter((rule) => rule.weekday === weekday && rule.kind === "working");
+  const reservationRules = (rulesResult.data ?? []).filter((rule) => rule.weekday === weekday && !["working", "high_focus"].includes(rule.kind));
+  if (!workingRules.length) throw new Error("No working hours are configured for today.");
+
+  const intervals: Array<{ start: number; end: number }> = [];
+  for (const item of items) {
+    const title = taskMap.get(item.task_id!)?.title ?? "Task";
+    const start = timeMinutes(normalizeProposalTime(item.start_time));
+    const end = timeMinutes(normalizeProposalTime(item.end_time));
+    if (start < 0 || end <= start) throw new Error("Invalid schedule time for \"" + title + "\".");
+
+    if (item.estimated_minutes !== undefined && item.estimated_minutes !== end - start) {
+      throw new Error("The scheduled duration for \"" + title + "\" does not match its estimated minutes.");
+    }
+    if (!workingRules.some((rule) => start >= timeMinutes(rule.start_time) && end <= timeMinutes(rule.end_time))) {
+      throw new Error("\"" + title + "\" falls outside your configured working hours.");
+    }
+    if (reservationRules.some((rule) => intervalsOverlap(start, end, timeMinutes(rule.start_time), timeMinutes(rule.end_time)))) {
+      throw new Error("\"" + title + "\" overlaps a reserved availability window.");
+    }
+    const commitment = (commitmentsResult.data ?? []).find((item) =>
+      intervalsOverlap(start, end, timeMinutes(item.start_time), timeMinutes(item.end_time))
+    );
+    if (commitment) throw new Error("\"" + title + "\" overlaps the fixed commitment \"" + commitment.title + "\".");
+
+    if (calendarEvents.some((event) => intervalsOverlap(start, end, timeMinutes(event.startTime), timeMinutes(event.endTime)))) {
+      throw new Error("\"" + title + "\" overlaps a Google Calendar event.");
+    }
+    if (intervals.some((existing) => intervalsOverlap(start, end, existing.start, existing.end))) {
+      throw new Error("The proposal contains overlapping work blocks.");
+    }
+    intervals.push({ start, end });
+  }
+
+  const blocks = items.map((item, index) => ({
+    task_id: item.task_id,
+    kind: "task",
+    title: taskMap.get(item.task_id!)!.title,
+    start_time: normalizeProposalTime(item.start_time),
+    end_time: normalizeProposalTime(item.end_time),
+    sort_order: index,
+    is_manual: false,
+  }));
+
+  const { data: draft, error: draftError } = await supabase.rpc("create_draft_plan", {
+    p_user_id: user.id,
+    p_plan_date: planDate,
+    p_buffer_minutes: 0,
+    p_generated_at: new Date().toISOString(),
+    p_blocks: blocks,
+    p_unscheduled: [],
+  }).single<DailyPlan>();
+  if (draftError || !draft) throw new Error(draftError?.message ?? "Could not create the confirmed schedule draft.");
+
+  const confirmation = new FormData();
+  confirmation.set("plan_id", draft.id);
+  await confirmPlan(confirmation);
+
+  return { ok: true, plan_id: draft.id, message: "Schedule confirmed and published to AI Planner." };
 }
 
 export async function confirmPlan(formData: FormData) {
