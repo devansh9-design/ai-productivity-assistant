@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AIChat } from "@/components/ai-chat";
+import { AIHistory } from "@/components/ai-history";
 
 export default function AIPage() {
   return (
@@ -8,6 +9,7 @@ export default function AIPage() {
       <h1 id="page-title" className="mt-4 text-3xl font-bold tracking-tight text-slate-900">AI Assistant</h1>
       <p className="mt-2 text-slate-600">Turn natural-language planning requests into safe, reviewable proposals.</p>
       <AIChat />
+      <AIHistory />
     </section>
   );
 }
