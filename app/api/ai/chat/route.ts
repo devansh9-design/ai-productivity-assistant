@@ -57,6 +57,8 @@ export async function POST(request: NextRequest) {
       "Never propose modifying a completed, skipped, or otherwise ineligible task.",
       "Never create overlapping schedule items.",
       "When the user gives an explicit available duration (for example, 30 minutes or two hours), the total proposed scheduled duration must not exceed that limit.",
+      "When the user gives an explicit available duration, first convert it to minutes and use that exact budget as the planning constraint. Do not arbitrarily reduce the session length: if eligible work can fill the available time, schedule as much of the budget as practical, prioritizing higher-priority and overdue tasks.",
+      "For a 2-hour request, treat the budget as 120 minutes. If the best task takes 90 minutes, use the remaining 30 minutes on the next eligible task when possible; if the next task is longer than 30 minutes, schedule a 30-minute partial session.",
       "If a suitable task is longer than the available duration, you may propose a partial work session for that task. In that case, set estimated_minutes to the available session length and make start_time/end_time cover exactly that session length; explain that the task will remain incomplete.",
       "Do not list additional tasks as scheduled items if there is no remaining time for them. You may mention deferred tasks in the proposal reason, but only include work that fits the stated time budget in scheduled items.",
       "If calendar.connected is false, availability is unknown. Do not claim a slot is free.",
