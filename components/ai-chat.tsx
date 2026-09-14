@@ -86,6 +86,12 @@ export function AIChat() {
 
       {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
 
+      {success && (
+        <p role="status" className="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {success}
+        </p>
+      )}
+
       {proposal && (
         <div className="mt-6 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -139,12 +145,6 @@ export function AIChat() {
               <span className="text-xs text-slate-500">Review the times above before confirming.</span>
             </div>
           ) : null}
-
-          {success && (
-            <p role="status" className="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-              {success}
-            </p>
-          )}
 
           <div className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
             {proposal.type === "suggest_schedule" || proposal.type === "propose_reschedule"
