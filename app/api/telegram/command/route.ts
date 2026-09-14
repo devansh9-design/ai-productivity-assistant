@@ -64,7 +64,8 @@ function formatToday(data: TelegramTodayData | null | undefined) {
     for (const b of scheduled) {
       const start = formatTime(b.start_time);
       const end = formatTime(b.end_time);
-      lines.push(`• ${start}-${end} — ${b.title ?? "Untitled task"}`);
+      const statusIcon = b.status === "completed" ? "✅" : b.status === "skipped" ? "⏭️" : "⬜";
+      lines.push(`${statusIcon} ${start}-${end} — ${b.title ?? "Untitled task"}`);
     }
     lines.push("");
   }
@@ -75,7 +76,8 @@ function formatToday(data: TelegramTodayData | null | undefined) {
     for (const t of unscheduled) {
       const mins = t.estimated_minutes ? ` (${t.estimated_minutes}m)` : "";
       const reason = t.reason ? ` — ${t.reason}` : "";
-      lines.push(`• ${t.title ?? "Untitled task"}${mins}${reason}`);
+      const statusIcon = t.status === "completed" ? "✅" : t.status === "skipped" ? "⏭️" : "⬜";
+      lines.push(`${statusIcon} ${t.title ?? "Untitled task"}${mins}${reason}`);
     }
     lines.push("");
   }
