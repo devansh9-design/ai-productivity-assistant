@@ -142,9 +142,22 @@ export async function POST(request: NextRequest) {
   }
 
   if (command === "/done" || command === "done" || command === "/skip" || command === "skip") {
-    const rawCommand = (clean(body.command) || clean(body.text) || "").trim();
-    const commandArgs = rawCommand.replace(/^\/?(?:done|skip)\s*/i, "").trim();
     const isSkip = command === "/skip" || command === "skip";
+
+    // Accept task names from Telegram text, n8n command fields, or dedicated fields.
+    const extractArgs = (value: unknown) => {
+      const text = clean(value) || "";
+      const match = text.match(/^\/?(?:done|skip)(?:\s+(.+))?$/i);
+      return match?.[1]?.trim() || "";
+    };
+
+    const commandArgs =
+      clean(body.task_name) ||
+      clean(body.task_title) ||
+      extractArgs(body.text) ||
+      extractArgs(body.command) ||
+      clean(body.args) ||
+      "";
 
     const mapping = await supabase
       .from("telegram_chat_mappings")
