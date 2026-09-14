@@ -142,13 +142,9 @@ export async function POST(request: NextRequest) {
   }
 
   if (command === "/done" || command === "done" || command === "/skip" || command === "skip") {
-    const parts = (clean(body.command) || clean(body.text) || "").trim().split(/\s+/);
-    const taskId = parts[1] || "";
+    const rawCommand = (clean(body.command) || clean(body.text) || "").trim();
+    const commandArgs = rawCommand.replace(/^\\/?(?:done|skip)\\s*/i, "").trim();
     const isSkip = command === "/skip" || command === "skip";
-
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(taskId)) {
-      return NextResponse.json({ error: isSkip ? "Usage: /skip <task-id> <reason>" : "Usage: /done <task-id>" }, { status: 400 });
-    }
 
     const mapping = await supabase
       .from("telegram_chat_mappings")
@@ -159,20 +155,73 @@ export async function POST(request: NextRequest) {
     if (mapping.error) return NextResponse.json({ error: mapping.error.message }, { status: 500 });
     if (!mapping.data) return NextResponse.json({ error: "Telegram chat is not linked to an account." }, { status: 403 });
 
-    const reason = parts.slice(2).join(" ").trim();
-    if (isSkip && !reason) {
-      return NextResponse.json({ error: "Usage: /skip <task-id> <reason>" }, { status: 400 });
+    if (!commandArgs) {
+      return NextResponse.json({
+        error: isSkip
+          ? "Usage: /skip <task name> [reason]"
+          : "Usage: /done <task name>",
+      }, { status: 400 });
     }
 
-    const { data: task, error: lookupError } = await supabase
+    const { data: tasks, error: tasksError } = await supabase
       .from("tasks")
       .select("id,title,status")
-      .eq("id", taskId)
-      .eq("user_id", mapping.data.user_id)
-      .maybeSingle();
+      .eq("user_id", mapping.data.user_id);
 
-    if (lookupError) return NextResponse.json({ error: lookupError.message }, { status: 500 });
-    if (!task) return NextResponse.json({ error: "Task not found for this Telegram account. Check the task ID and try again." }, { status: 404 });
+    if (tasksError) return NextResponse.json({ error: tasksError.message }, { status: 500 });
+
+    const taskList = Array.isArray(tasks) ? tasks : [];
+    const normalized = commandArgs.toLowerCase();
+
+    // For /skip, a "|" makes the boundary between task name and reason explicit:
+    // /skip Task name | reason
+    let requestedTitle = commandArgs;
+    let reason = "";
+    const separatorIndex = commandArgs.indexOf("|");
+    if (separatorIndex >= 0) {
+      requestedTitle = commandArgs.slice(0, separatorIndex).trim();
+      reason = commandArgs.slice(separatorIndex + 1).trim();
+    }
+
+    let matches = taskList.filter(
+      (task) => String(task.title ?? "").trim().toLowerCase() === requestedTitle.toLowerCase(),
+    );
+
+    // Also support /skip Task name reason without requiring "|": find a task title
+    // that is the longest case-insensitive prefix of the supplied arguments.
+    if (isSkip && separatorIndex < 0 && matches.length === 0) {
+      matches = taskList
+        .filter((task) => {
+          const title = String(task.title ?? "").trim().toLowerCase();
+          return title && normalized.startsWith(title + " ");
+        })
+        .sort((a, b) => String(b.title ?? "").length - String(a.title ?? "").length);
+
+      if (matches.length) {
+        const matchedTitle = String(matches[0].title ?? "").trim();
+        reason = commandArgs.slice(matchedTitle.length).trim();
+      }
+    }
+
+    if (!matches.length) {
+      return NextResponse.json({
+        error: `Task "${requestedTitle}" not found for this Telegram account. Use /today to see task names.`,
+      }, { status: 404 });
+    }
+
+    if (matches.length > 1) {
+      return NextResponse.json({
+        error: `Multiple tasks match "${requestedTitle}". Please use a more specific task name.`,
+      }, { status: 409 });
+    }
+
+    const task = matches[0];
+
+    if (isSkip && !reason) {
+      return NextResponse.json({
+        error: "A reason is required. Usage: /skip <task name> <reason> (or /skip <task name> | <reason>)",
+      }, { status: 400 });
+    }
 
     const update = isSkip
       ? { status: "skipped", status_reason: reason }
@@ -191,7 +240,8 @@ export async function POST(request: NextRequest) {
       command: isSkip ? "skip" : "done",
       chat_id: chatId,
       task_id: task.id,
-      text: isSkip ? `⏭️ Skipped: ${task.title}\nReason: ${reason}` : `✅ Completed: ${task.title}`,
+      task_title: task.title,
+      text: isSkip ? `⏭️ Skipped: ${task.title}\\nReason: ${reason}` : `✅ Completed: ${task.title}`,
     });
   }
 
@@ -200,7 +250,7 @@ export async function POST(request: NextRequest) {
       ok: true,
       command: "help",
       chat_id: chatId,
-      text: "🤖 Productivity Assistant\n\n/today — show today's plan\n/plan — show today's plan\n/checkin — submit your daily check-in\n/done <task-id> — mark your task completed\n/skip <task-id> <reason> — skip a task with a reason\n/help — show this help",
+      text: "🤖 Productivity Assistant\n\n/today — show today's plan\n/plan — show today's plan\n/checkin — submit your daily check-in\n/done <task name> — mark your task completed\n/skip <task name> <reason> — skip a task with a reason\n/help — show this help",
     });
   }
 
