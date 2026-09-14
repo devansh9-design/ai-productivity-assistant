@@ -35,6 +35,8 @@ export function validatePlanningProposal(
     return { ok: false, error: "Proposal items must be an array of at most 50 items." };
   }
 
+  const isSchedule = p.type === "suggest_schedule" || p.type === "propose_reschedule";
+
   for (const item of p.items) {
     if (!item || typeof item !== "object" || Array.isArray(item)) {
       return { ok: false, error: "Each proposal item must be an object." };
@@ -53,7 +55,30 @@ export function validatePlanningProposal(
 
     for (const key of ["title", "start_time", "end_time"] as const) {
       if (i[key] !== undefined && !isString(i[key], 500)) {
-        return { ok: false, error: `${key} must be a non-empty string.` };
+        return { ok: false, error: key + " must be a non-empty string." };
+      }
+    }
+
+    if (isSchedule) {
+      if (typeof i.task_id !== "string" || !UUID_RE.test(i.task_id)) {
+        return { ok: false, error: "Scheduled items must reference a valid task_id." };
+      }
+      if (typeof i.start_time !== "string" || typeof i.end_time !== "string") {
+        return { ok: false, error: "Scheduled items require start_time and end_time." };
+      }
+      const timeRe = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+      if (!timeRe.test(i.start_time) || !timeRe.test(i.end_time)) {
+        return { ok: false, error: "Schedule times must use HH:mm in the user's timezone." };
+      }
+      const [startHour, startMinute] = i.start_time.split(":").map(Number);
+      const [endHour, endMinute] = i.end_time.split(":").map(Number);
+      if (endHour * 60 + endMinute <= startHour * 60 + startMinute) {
+        return { ok: false, error: "Scheduled end_time must be after start_time." };
+      }
+      if (typeof i.estimated_minutes !== "number" ||
+          !Number.isInteger(i.estimated_minutes) ||
+          i.estimated_minutes !== (endHour * 60 + endMinute) - (startHour * 60 + startMinute)) {
+        return { ok: false, error: "estimated_minutes must exactly match the scheduled duration." };
       }
     }
 
