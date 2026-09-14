@@ -4,6 +4,58 @@ import { FormEvent, useState } from "react";
 import type { PlanningProposal } from "@/lib/ai/proposal";
 import { confirmAIProposal } from "@/lib/plans/actions";
 
+function formatProposalTime(value: string, timezone?: string): string {
+  if (!value) return "";
+  const shortTime = /^(\\d{1,2}):(\\d{2})(?::\\d{2})?$/.exec(value);
+  if (shortTime) {
+    const hours = Number(shortTime[1]);
+    const minutes = Number(shortTime[2]);
+    const suffix = hours >= 12 ? "PM" : "AM";
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${String(minutes).padStart(2, "0")} ${suffix}`;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: timezone,
+  }).format(date);
+}
+
+function formatProposalRange(start: string, end: string, timezone?: string): string {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+
+  if (!Number.isNaN(startDate.getTime()) && !Number.isNaN(endDate.getTime())) {
+    const dateFormatter = new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: timezone,
+    });
+    const timeFormatter = new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: timezone,
+    });
+
+    const startDateLabel = dateFormatter.format(startDate);
+    const endDateLabel = dateFormatter.format(endDate);
+    const startTimeLabel = timeFormatter.format(startDate);
+    const endTimeLabel = timeFormatter.format(endDate);
+
+    return startDateLabel === endDateLabel
+      ? `${startTimeLabel} – ${endTimeLabel}`
+      : `${startDateLabel}, ${startTimeLabel} – ${endDateLabel}, ${endTimeLabel}`;
+  }
+
+  return `${formatProposalTime(start, timezone)} – ${formatProposalTime(end, timezone)}`;
+}
+
 type ChatResponse = {
   ok?: boolean;
   proposal?: PlanningProposal;
@@ -110,7 +162,7 @@ export function AIChat() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="font-medium text-slate-900">{item.title || item.task_id || "Proposed item"}</p>
                     {item.start_time && item.end_time && (
-                      <span className="text-xs font-medium text-slate-500">{item.start_time} – {item.end_time}</span>
+                      <span className="text-xs font-medium text-slate-500">{formatProposalRange(item.start_time, item.end_time, meta?.timezone)}</span>
                     )}
                   </div>
                   <p className="mt-1 text-sm text-slate-600">{item.reason}</p>
