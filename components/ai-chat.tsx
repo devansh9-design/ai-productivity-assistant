@@ -62,6 +62,7 @@ type ChatResponse = {
   requires_confirmation?: boolean;
   context?: { date: string; timezone: string; calendar_connected: boolean };
   error?: string;
+  conversation_id?: string;
 };
 
 export function AIChat() {
@@ -72,6 +73,7 @@ export function AIChat() {
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [success, setSuccess] = useState("");
+  const [conversationId, setConversationId] = useState<string | undefined>();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -82,6 +84,7 @@ export function AIChat() {
     setError("");
     setSuccess("");
     setProposal(null);
+    setConversationId(undefined);
 
     try {
       const response = await fetch("/api/ai/chat", {
@@ -95,6 +98,7 @@ export function AIChat() {
       }
       setProposal(data.proposal);
       setMeta(data.context);
+      setConversationId(data.conversation_id);
       setMessage("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create a proposal.");
@@ -181,7 +185,7 @@ export function AIChat() {
                   setError("");
                   setSuccess("");
                   try {
-                    const result = await confirmAIProposal(proposal);
+                    const result = await confirmAIProposal(proposal, conversationId);
                     setSuccess(result.message);
                     setProposal(null);
                   } catch (err) {
