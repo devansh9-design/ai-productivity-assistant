@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
       "If calendar.connected is false, availability is unknown. Do not claim a slot is free.",
       "Do not perform or claim to perform database, calendar, or task writes.",
       "Every proposal item must include a concise reason explaining why it was chosen or deferred.",
+      "For schedule proposals, always output start_time and end_time as HH:mm local times in the supplied timezone (for example 19:00), never ISO timestamps or UTC offsets.",
       "Only include item fields that are applicable. For example, scheduling fields may be omitted for context-only proposals.",
       "The user must confirm the proposal before any write occurs.",
       "USER CONTEXT JSON:",
