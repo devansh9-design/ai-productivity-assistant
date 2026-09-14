@@ -201,7 +201,7 @@ export async function generateDraftPlan() {
   revalidatePath("/today");
 }
 
-export async function confirmAIProposal(proposal: PlanningProposal) {
+export async function confirmAIProposal(proposal: PlanningProposal, conversationId?: string) {
   const { supabase, user } = await requireUser();
   const validation = validatePlanningProposal(proposal);
   if (!validation.ok) throw new Error(validation.error);
@@ -320,6 +320,17 @@ export async function confirmAIProposal(proposal: PlanningProposal) {
   const confirmation = new FormData();
   confirmation.set("plan_id", draft.id);
   await confirmPlan(confirmation);
+
+  if (conversationId) {
+    const { error: historyError } = await supabase
+      .from("ai_conversations")
+      .update({ confirmed: true, confirmed_plan_id: draft.id })
+      .eq("id", conversationId)
+      .eq("user_id", user.id);
+    if (historyError) {
+      console.error("AI conversation confirmation persistence error:", historyError);
+    }
+  }
 
   return { ok: true, plan_id: draft.id, message: "Schedule confirmed and published to AI Planner." };
 }
