@@ -188,6 +188,7 @@ export function AIChat() {
                     const result = await confirmAIProposal(proposal, conversationId);
                     setSuccess(result.message);
                     setProposal(null);
+                    window.dispatchEvent(new Event("ai-history-updated"));
                   } catch (err) {
                     setError(err instanceof Error ? err.message : "Unable to confirm the proposal.");
                   } finally {
