@@ -16,12 +16,16 @@ type TelegramBlock = {
   start_time?: string | null;
   end_time?: string | null;
   title?: string | null;
+  status?: string | null;
+  status_reason?: string | null;
 };
 
 type TelegramUnscheduledTask = {
   estimated_minutes?: number | null;
   reason?: string | null;
   title?: string | null;
+  status?: string | null;
+  status_reason?: string | null;
 };
 
 type TelegramTodayData = {
