@@ -24,7 +24,7 @@ import { validatePlanningProposal } from "@/lib/ai/validate-proposal";
 import type { PlanningProposal } from "@/lib/ai/proposal";
 
 function timeMinutes(value: string): number {
-  const match = /^(\\d{2}):(\\d{2})(?::\\d{2})?$/.exec(value);
+  const match = /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(value);
   if (!match) return -1;
   return Number(match[1]) * 60 + Number(match[2]);
 }
