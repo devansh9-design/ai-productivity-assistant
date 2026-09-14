@@ -3,6 +3,7 @@ import { getAIPlanningContext } from "@/lib/ai/context";
 import { generateGeminiJson } from "@/lib/gemini";
 import { PROPOSAL_TYPES, type PlanningProposal } from "@/lib/ai/proposal";
 import { validatePlanningProposal } from "@/lib/ai/validate-proposal";
+import { requireUser } from "@/lib/auth/require-user";
 
 export const runtime = "nodejs";
 
@@ -93,9 +94,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const { supabase, user } = await requireUser();
+    const safeProposal = validation.data as PlanningProposal;
+    const { data: conversation, error: conversationError } = await supabase
+      .from("ai_conversations")
+      .insert({
+        user_id: user.id,
+        message,
+        proposal: safeProposal,
+        proposal_type: safeProposal.type,
+        validation_ok: true,
+      })
+      .select("id")
+      .single();
+
+    if (conversationError || !conversation) {
+      console.error("AI conversation persistence error:", conversationError);
+      return NextResponse.json(
+        { error: "AI proposal was generated, but could not be saved. Please try again." },
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json({
       ok: true,
-      proposal: validation.data as PlanningProposal,
+      conversation_id: conversation.id,
+      proposal: safeProposal,
       context: {
         date: context.date,
         timezone: context.timezone,
