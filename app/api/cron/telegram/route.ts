@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
 
 export const runtime = "nodejs";
 
@@ -43,6 +44,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unable to load Telegram mappings." }, { status: 500 });
   }
 
+  const planDate = getTodayISODate(DEFAULT_TIMEZONE);
   let sent = 0;
   const failures: Array<{ chat_id: string; error: string }> = [];
 
@@ -50,7 +52,7 @@ export async function GET(request: Request) {
     try {
       const { data, error: rpcError } = await supabase.rpc("telegram_today", {
         p_chat_id: mapping.chat_id,
-        p_plan_date: new Date().toISOString().slice(0, 10),
+        p_plan_date: planDate,
       });
 
       if (rpcError) throw rpcError;
