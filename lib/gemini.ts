@@ -1,10 +1,15 @@
 import "server-only";
 
+// Prefer the newest stable Flash model, but keep lower-cost/older stable
+// models available as capacity fallbacks. Gemini can return 503 during
+// temporary capacity spikes even when the API key and request are valid.
 const GEMINI_MODELS = [
   "gemini-3.8-flash",
   "gemini-3.7-flash",
   "gemini-3.6-flash",
+  "gemini-3.5-flash",
   "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
 ] as const;
 
 let apiKey: string | undefined;
@@ -26,8 +31,18 @@ export type GeminiGenerateOptions = {
   responseSchema: Record<string, unknown>;
 };
 
-function isRetryable(status: number): boolean {
-  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+function shouldTryAnotherModel(status: number): boolean {
+  // 404 can happen when a model is unavailable to a particular API project.
+  // 429/5xx are transient capacity/quota/server conditions.
+  return (
+    status === 404 ||
+    status === 408 ||
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504
+  );
 }
 
 async function requestModel(
@@ -37,12 +52,15 @@ async function requestModel(
 ): Promise<Response> {
   const isGemini38 = model === "gemini-3.8-flash";
 
+  // Retry a transient failure once before moving to the next model.
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const generationConfig: Record<string, unknown> = {
       responseMimeType: "application/json",
       responseSchema,
     };
 
+    // Gemini 3.8 uses thinkingLevel instead of the legacy temperature
+    // sampling control. Other stable Flash fallbacks can use temperature.
     if (!isGemini38) {
       generationConfig.temperature = 0.2;
     } else {
@@ -66,7 +84,9 @@ async function requestModel(
 
     if (response.ok) return response;
 
-    if (!isRetryable(response.status) || attempt === 1) return response;
+    if (!shouldTryAnotherModel(response.status) || attempt === 1) {
+      return response;
+    }
 
     await new Promise((resolve) => setTimeout(resolve, 750 * (attempt + 1)));
   }
@@ -110,7 +130,7 @@ export async function generateGeminiJson({
     lastStatus = response.status;
     lastBody = await response.text().catch(() => "");
 
-    if (!isRetryable(response.status)) break;
+    if (!shouldTryAnotherModel(response.status)) break;
   }
 
   const error = new Error(`Gemini API request failed with status ${lastStatus}.`);
