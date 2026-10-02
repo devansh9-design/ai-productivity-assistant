@@ -84,7 +84,47 @@ export async function POST(request: NextRequest) {
     }
 
     const { supabase, user } = await requireUser();
-    const safeProposal = validation.data as PlanningProposal;
+    let safeProposal = validation.data as PlanningProposal;
+
+    // Defense in depth: even if the model ignores the prompt, never return a
+    // suggest_schedule proposal that duplicates a task already present in the
+    // current plan. Keep valid new items, or fall back to an informational
+    // proposal when every suggested item is already scheduled.
+    if (safeProposal.type === "suggest_schedule") {
+      const scheduledTaskIds = new Set(
+        (context.plan?.blocks ?? [])
+          .filter((block) => block.kind === "task" && block.task_id)
+          .map((block) => block.task_id as string),
+      );
+      const duplicateItems = safeProposal.items.filter(
+        (item) => item.task_id && scheduledTaskIds.has(item.task_id),
+      );
+
+      if (duplicateItems.length > 0) {
+        const newItems = safeProposal.items.filter(
+          (item) => !item.task_id || !scheduledTaskIds.has(item.task_id),
+        );
+
+        if (newItems.length > 0) {
+          safeProposal = {
+            ...safeProposal,
+            items: newItems,
+            reason: `${safeProposal.reason} Already scheduled tasks were removed from this proposal to avoid duplicates.`,
+          };
+        } else {
+          const titles = duplicateItems
+            .map((item) => item.title || item.task_id || "a task")
+            .join(", ");
+          safeProposal = {
+            type: "get_today_context",
+            summary: "No new task was scheduled because the matching task is already on today's plan.",
+            reason: `${titles} is already scheduled in today's plan. Ask to reschedule it if you want to move it.`,
+            items: [],
+          };
+        }
+      }
+    }
+
     const { data: conversation, error: conversationError } = await supabase
       .from("ai_conversations")
       .insert({ user_id: user.id, message, proposal: safeProposal, proposal_type: safeProposal.type, validation_ok: true })
