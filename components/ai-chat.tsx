@@ -6,7 +6,7 @@ import { confirmAIProposal } from "@/lib/plans/actions";
 
 function formatProposalTime(value: string, timezone?: string): string {
   if (!value) return "";
-  const shortTime = /^(\\d{1,2}):(\\d{2})(?::\\d{2})?$/.exec(value);
+  const shortTime = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(value);
   if (shortTime) {
     const hours = Number(shortTime[1]);
     const minutes = Number(shortTime[2]);
@@ -148,74 +148,81 @@ export function AIChat() {
         </p>
       )}
 
-      {proposal && (
-        <div className="mt-6 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Proposal preview</p>
-              <h3 className="mt-1 font-semibold text-slate-900">{proposal.summary}</h3>
-              <p className="mt-1 text-sm text-slate-700">{proposal.reason}</p>
-            </div>
-            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">{proposal.type}</span>
-          </div>
+      {proposal && (() => {
+        const actionableProposal =
+          (proposal.type === "suggest_schedule" || proposal.type === "propose_reschedule") && proposal.items.length > 0;
 
-          {proposal.items.length > 0 && (
-            <div className="mt-4 space-y-2">
-              {proposal.items.map((item, index) => (
-                <div key={item.task_id ?? item.title ?? index} className="rounded-lg border border-slate-200 bg-white p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="font-medium text-slate-900">{item.title || item.task_id || "Proposed item"}</p>
-                    {item.start_time && item.end_time && (
-                      <span className="text-xs font-medium text-slate-500">{formatProposalRange(item.start_time, item.end_time, meta?.timezone)}</span>
-                    )}
+        return (
+          <div className="mt-6 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Proposal preview</p>
+                <h3 className="mt-1 font-semibold text-slate-900">{proposal.summary}</h3>
+                <p className="mt-1 text-sm text-slate-700">{proposal.reason}</p>
+              </div>
+              {actionableProposal && (
+                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">{proposal.type}</span>
+              )}
+            </div>
+
+            {proposal.items.length > 0 && (
+              <div className="mt-4 space-y-2">
+                {proposal.items.map((item, index) => (
+                  <div key={item.task_id ?? item.title ?? index} className="rounded-lg border border-slate-200 bg-white p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium text-slate-900">{item.title || item.task_id || "Proposed item"}</p>
+                      {item.start_time && item.end_time && (
+                        <span className="text-xs font-medium text-slate-500">{formatProposalRange(item.start_time, item.end_time, meta?.timezone)}</span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600">{item.reason}</p>
                   </div>
-                  <p className="mt-1 text-sm text-slate-600">{item.reason}</p>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
 
-          {proposal.type === "suggest_schedule" || proposal.type === "propose_reschedule" ? (
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                disabled={confirming}
-                onClick={async () => {
-                  setConfirming(true);
-                  setError("");
-                  setSuccess("");
-                  try {
-                    const result = await confirmAIProposal(proposal, conversationId);
-                    setSuccess(result.message);
-                    setProposal(null);
-                    window.dispatchEvent(new Event("ai-history-updated"));
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : "Unable to confirm the proposal.");
-                  } finally {
-                    setConfirming(false);
-                  }
-                }}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {confirming ? "Confirming..." : "Confirm schedule"}
-              </button>
-              <span className="text-xs text-slate-500">Review the times above before confirming.</span>
-            </div>
-          ) : null}
+            {actionableProposal ? (
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  disabled={confirming}
+                  onClick={async () => {
+                    setConfirming(true);
+                    setError("");
+                    setSuccess("");
+                    try {
+                      const result = await confirmAIProposal(proposal, conversationId);
+                      setSuccess(result.message);
+                      setProposal(null);
+                      window.dispatchEvent(new Event("ai-history-updated"));
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "Unable to confirm the proposal.");
+                    } finally {
+                      setConfirming(false);
+                    }
+                  }}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {confirming ? "Confirming..." : "Confirm schedule"}
+                </button>
+                <span className="text-xs text-slate-500">Review the times above before confirming.</span>
+              </div>
+            ) : null}
 
-          <div className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            {proposal.type === "suggest_schedule" || proposal.type === "propose_reschedule"
-              ? "Preview only. No task or calendar changes have been made until you confirm."
-              : "Informational proposal only. No task or calendar changes have been made."}
+            <div className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {actionableProposal
+                ? "Preview only. No task or calendar changes have been made until you confirm."
+                : "Informational proposal only. No task or calendar changes have been made."}
+            </div>
+
+            {meta && (
+              <p className="mt-2 text-xs text-slate-500">
+                Context: {meta.date} · {meta.timezone} · Calendar {meta.calendar_connected ? "connected" : "unavailable"}
+              </p>
+            )}
           </div>
-
-          {meta && (
-            <p className="mt-2 text-xs text-slate-500">
-              Context: {meta.date} · {meta.timezone} · Calendar {meta.calendar_connected ? "connected" : "unavailable"}
-            </p>
-          )}
-        </div>
-      )}
+        );
+      })()}
     </section>
   );
 }
