@@ -26,6 +26,11 @@ export type AIPlanningContext = {
     due_date: string | null; estimated_minutes: number | null; energy_level: string | null;
     goal_id: string | null; project_id: string | null; milestone_id: string | null;
   }>;
+  scheduled_tasks: Array<{
+    id: string; title: string; description: string | null; status: string; priority: string;
+    due_date: string | null; estimated_minutes: number | null; energy_level: string | null;
+    goal_id: string | null; project_id: string | null; milestone_id: string | null;
+  }>;
   goals: Array<{ id: string; title: string; description: string | null; status: string; incomplete_task_count: number }>;
   milestones: Array<{ id: string; title: string; description: string | null; due_date: string | null; status: string; incomplete_task_count: number }>;
   recent_checkins: Array<{
@@ -91,6 +96,15 @@ export async function getAIPlanningContext(): Promise<AIPlanningContext> {
     plan = { ...planResult.data, blocks: blocksResult.data ?? [], unscheduled: unscheduledResult.data ?? [] };
   }
 
+  const scheduledTaskIds = new Set(
+    (plan?.blocks ?? [])
+      .filter((block) => block.kind === "task" && block.task_id)
+      .map((block) => block.task_id as string),
+  );
+
+  const scheduledTasks = tasks.filter((task) => scheduledTaskIds.has(task.id));
+  const incompleteTasks = tasks.filter((task) => !scheduledTaskIds.has(task.id));
+
   let calendar: AIPlanningContext["calendar"] = { connected: false, events: [] };
   const tokenResult = await getValidAccessToken(user.id);
   if (!("error" in tokenResult)) {
@@ -108,7 +122,9 @@ export async function getAIPlanningContext(): Promise<AIPlanningContext> {
     availability: availabilityResult.data ?? [],
     fixed_commitments: commitmentsResult.data ?? [],
     preferences: { email: profileResult.data?.email ?? null },
-    plan, calendar, incomplete_tasks: tasks,
+    plan, calendar,
+    incomplete_tasks: incompleteTasks,
+    scheduled_tasks: scheduledTasks,
     goals: (goalsResult.data ?? []).map((goal) => ({
       ...goal, incomplete_task_count: goalCounts.get(goal.id) ?? 0,
     })),
