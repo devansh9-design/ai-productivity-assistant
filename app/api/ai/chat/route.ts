@@ -39,13 +39,8 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as ChatRequest;
     const message = body.message?.trim();
 
-    if (!message) {
-      return NextResponse.json({ error: "message is required" }, { status: 400 });
-    }
-
-    if (message.length > 4000) {
-      return NextResponse.json({ error: "message is too long" }, { status: 400 });
-    }
+    if (!message) return NextResponse.json({ error: "message is required" }, { status: 400 });
+    if (message.length > 4000) return NextResponse.json({ error: "message is too long" }, { status: 400 });
 
     const context = await getAIPlanningContext();
 
@@ -64,6 +59,8 @@ export async function POST(request: NextRequest) {
       "For a 2-hour request, treat the budget as 120 minutes. If the best task takes 90 minutes, use the remaining 30 minutes on the next eligible task when possible; if the next task is longer than 30 minutes, schedule a 30-minute partial session.",
       "If a suitable task is longer than the available duration, you may propose a partial work session for that task. In that case, set estimated_minutes to the available session length and make start_time/end_time cover exactly that session length; explain that the task will remain incomplete.",
       "Do not list additional tasks as scheduled items if there is no remaining time for them. You may mention deferred tasks in the proposal reason, but only include work that fits the stated time budget in scheduled items.",
+      "If a current plan exists, treat every existing plan block as locked context. For suggest_schedule, add the new task into a genuine free gap and never replace or omit existing plan blocks. Prefer the earliest feasible free gap when multiple gaps are equivalent.",
+      "For propose_reschedule, only move the explicitly proposed task(s); preserve all other existing plan blocks.",
       "If calendar.connected is false, availability is unknown. Do not claim a slot is free.",
       "Do not perform or claim to perform database, calendar, or task writes.",
       "Every proposal item must include a concise reason explaining why it was chosen or deferred.",
@@ -76,102 +73,45 @@ export async function POST(request: NextRequest) {
       message,
     ].join("\n");
 
-    const proposal = await generateGeminiJson({
-      prompt,
-      responseSchema: proposalSchema,
-    });
-
+    const proposal = await generateGeminiJson({ prompt, responseSchema: proposalSchema });
     const validation = validatePlanningProposal(proposal);
 
     if (!validation.ok) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "AI returned an invalid planning proposal.",
-          details: validation.error,
-        },
-        { status: 422 },
-      );
+      return NextResponse.json({ ok: false, error: "AI returned an invalid planning proposal.", details: validation.error }, { status: 422 });
     }
 
     const { supabase, user } = await requireUser();
     const safeProposal = validation.data as PlanningProposal;
     const { data: conversation, error: conversationError } = await supabase
       .from("ai_conversations")
-      .insert({
-        user_id: user.id,
-        message,
-        proposal: safeProposal,
-        proposal_type: safeProposal.type,
-        validation_ok: true,
-      })
+      .insert({ user_id: user.id, message, proposal: safeProposal, proposal_type: safeProposal.type, validation_ok: true })
       .select("id")
       .single();
 
     if (conversationError || !conversation) {
       console.error("AI conversation persistence error:", conversationError);
-      return NextResponse.json(
-        { error: "AI proposal was generated, but could not be saved. Please try again." },
-        { status: 500 },
-      );
+      return NextResponse.json({ error: "AI proposal was generated, but could not be saved. Please try again." }, { status: 500 });
     }
 
     return NextResponse.json({
       ok: true,
       conversation_id: conversation.id,
       proposal: safeProposal,
-      context: {
-        date: context.date,
-        timezone: context.timezone,
-        calendar_connected: context.calendar.connected,
-      },
+      context: { date: context.date, timezone: context.timezone, calendar_connected: context.calendar.connected },
       requires_confirmation: true,
     });
   } catch (error) {
     console.error("AI chat error:", error);
 
-    if (
-      error instanceof Error &&
-      "status" in error &&
-      typeof (error as Error & { status?: unknown }).status === "number"
-    ) {
+    if (error instanceof Error && "status" in error && typeof (error as Error & { status?: unknown }).status === "number") {
       const status = (error as Error & { status: number }).status;
-
-      if (status === 401 || status === 403) {
-        return NextResponse.json(
-          { error: "Gemini API authentication failed." },
-          { status: 502 },
-        );
-      }
-
-      if (status === 429) {
-        return NextResponse.json(
-          {
-            error:
-              "Gemini API quota is unavailable. Check your Gemini API quota or billing.",
-          },
-          { status: 503 },
-        );
-      }
+      if (status === 401 || status === 403) return NextResponse.json({ error: "Gemini API authentication failed." }, { status: 502 });
+      if (status === 429) return NextResponse.json({ error: "Gemini API quota is unavailable. Check your Gemini API quota or billing." }, { status: 503 });
     }
 
-    const message =
-      error instanceof Error ? error.message : "Unable to process AI request.";
-
-    if (message === "Unauthorized") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    if (message === "Missing GEMINI_API_KEY environment variable.") {
-      return NextResponse.json(
-        { error: "AI provider is not configured." },
-        { status: 503 },
-      );
-    }
-
-    return NextResponse.json(
-      { error: "Unable to process AI request." },
-      { status: 500 },
-    );
+    const errorMessage = error instanceof Error ? error.message : "Unable to process AI request.";
+    if (errorMessage === "Unauthorized") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (errorMessage === "Missing GEMINI_API_KEY environment variable.") return NextResponse.json({ error: "AI provider is not configured." }, { status: 503 });
+    return NextResponse.json({ error: "Unable to process AI request." }, { status: 500 });
   }
 }
