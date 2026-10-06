@@ -5,18 +5,11 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/require-user";
 import { TIMEZONE_COOKIE_NAME } from "@/lib/tasks/timezone";
 import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
-import {
-  type AvailabilityRuleInput,
-  type FixedCommitmentInput,
-} from "@/lib/scheduler/engine";
+import { type AvailabilityRuleInput, type FixedCommitmentInput } from "@/lib/scheduler/engine";
 import { buildDraftPlan, type ExistingManualBlock } from "@/lib/plans/planner";
 import { getValidAccessToken } from "@/lib/google/oauth";
 import { fetchCalendarEvents } from "@/lib/google/calendar";
-import {
-  createPlannerEvent,
-  deletePlannerEventsForDate,
-  getOrCreatePlannerCalendar,
-} from "@/lib/google/planner-calendar";
+import { createPlannerEvent, deletePlannerEventsForDate, getOrCreatePlannerCalendar } from "@/lib/google/planner-calendar";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { DailyPlan, PlanBlock, Task } from "@/lib/types";
 import { validatePlanningProposal } from "@/lib/ai/validate-proposal";
@@ -54,12 +47,7 @@ export async function generateDraftPlan() {
   const planDate = getTodayISODate(timeZone);
   const weekday = new Date(`${planDate}T00:00:00Z`).getUTCDay();
 
-  const [
-    { data: rules, error: rulesError },
-    { data: commitments, error: commitmentsError },
-    { data: tasks, error: tasksError },
-    { data: existingActivePlan },
-  ] = await Promise.all([
+  const [{ data: rules, error: rulesError }, { data: commitments, error: commitmentsError }, { data: tasks, error: tasksError }, { data: existingActivePlan }] = await Promise.all([
     supabase.from("availability_rules").select("*").eq("weekday", weekday),
     supabase.from("fixed_commitments").select("*").eq("commitment_date", planDate),
     supabase.from("tasks").select("*").returns<Task[]>(),
@@ -114,6 +102,7 @@ export async function confirmAIProposal(proposal: PlanningProposal, conversation
   const items = safeProposal.items.filter((item) => item.start_time && item.end_time);
   if (!items.length) throw new Error("The proposal has no scheduled work to confirm.");
   if (items.length !== safeProposal.items.length) throw new Error("Every item in a confirmable schedule proposal must have a start and end time.");
+  if (safeProposal.type === "propose_reschedule" && items.length !== 1) throw new Error("A reschedule proposal must contain exactly one task move.");
 
   const cookieStore = await cookies();
   const timeZone = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value || DEFAULT_TIMEZONE;
@@ -135,25 +124,27 @@ export async function confirmAIProposal(proposal: PlanningProposal, conversation
   for (const id of taskIds) {
     const task = taskMap.get(id);
     if (!task) throw new Error("One or more proposed tasks no longer exist or do not belong to your account.");
-    if (["completed", "skipped"].includes(task.status)) throw new Error("Task \"" + task.title + "\" is no longer eligible for scheduling.");
+    if (["completed", "skipped"].includes(task.status)) throw new Error(`Task "${task.title}" is no longer eligible for scheduling.`);
   }
 
   const existingPlan = activePlanResult.data;
-  let existingBlocks: PlanBlock[] = [];
-  let existingUnscheduled: Array<{ task_id: string; reason: string }> = [];
-  if (existingPlan) {
-    const [{ data: blockRows, error: blockError }, { data: unscheduledRows, error: unscheduledError }] = await Promise.all([
-      supabase.from("plan_blocks").select("*").eq("daily_plan_id", existingPlan.id).eq("user_id", user.id).order("start_time", { ascending: true }).returns<PlanBlock[]>(),
-      supabase.from("plan_unscheduled_tasks").select("task_id,reason").eq("daily_plan_id", existingPlan.id).returns<Array<{ task_id: string; reason: string }>>(),
-    ]);
-    if (blockError || unscheduledError) throw new Error(blockError?.message ?? unscheduledError?.message ?? "Could not load today's existing plan.");
-    existingBlocks = blockRows ?? [];
-    existingUnscheduled = unscheduledRows ?? [];
-  }
+  if (!existingPlan) throw new Error("There is no active plan to modify.");
 
+  const [{ data: blockRows, error: blockError }, { data: unscheduledRows, error: unscheduledError }] = await Promise.all([
+    supabase.from("plan_blocks").select("*").eq("daily_plan_id", existingPlan.id).eq("user_id", user.id).order("start_time", { ascending: true }).returns<PlanBlock[]>(),
+    supabase.from("plan_unscheduled_tasks").select("task_id,reason").eq("daily_plan_id", existingPlan.id).returns<Array<{ task_id: string; reason: string }>>(),
+  ]);
+  if (blockError || unscheduledError) throw new Error(blockError?.message ?? unscheduledError?.message ?? "Could not load today's existing plan.");
+
+  const existingBlocks = blockRows ?? [];
+  const existingUnscheduled = unscheduledRows ?? [];
   const existingTaskIds = new Set(existingBlocks.filter((block) => block.kind === "task" && block.task_id).map((block) => block.task_id as string));
+
   if (safeProposal.type === "suggest_schedule" && taskIds.some((id) => existingTaskIds.has(id))) {
     throw new Error("One or more proposed tasks are already scheduled in today's plan. Use a reschedule request instead.");
+  }
+  if (safeProposal.type === "propose_reschedule" && !existingTaskIds.has(taskIds[0])) {
+    throw new Error("The task to reschedule is not present in today's active plan.");
   }
 
   const tokenResult = await getValidAccessToken(user.id);
@@ -167,7 +158,24 @@ export async function confirmAIProposal(proposal: PlanningProposal, conversation
   const reservationRules = (rulesResult.data ?? []).filter((rule) => rule.weekday === weekday && !["working", "high_focus"].includes(rule.kind));
   if (!workingRules.length) throw new Error("No working hours are configured for today.");
 
-  const preservedBlocks = existingBlocks.filter((block) => safeProposal.type !== "propose_reschedule" || !block.task_id || !taskIds.includes(block.task_id));
+  const targetTaskIds = new Set(taskIds);
+  const removedBufferMinutes = safeProposal.type === "propose_reschedule"
+    ? existingBlocks.filter((block) => block.kind === "buffer" && intervalsOverlap(timeMinutes(block.start_time.slice(0, 5)), timeMinutes(block.end_time.slice(0, 5)), timeMinutes(normalizeProposalTime(items[0].start_time)), timeMinutes(normalizeProposalTime(items[0].end_time)))).reduce((total, block) => total + Math.max(0, timeMinutes(block.end_time.slice(0, 5)) - timeMinutes(block.start_time.slice(0, 5))), 0)
+    : 0;
+
+  const preservedBlocks = existingBlocks.filter((block) => {
+    if (safeProposal.type !== "propose_reschedule") return true;
+    if (block.task_id && targetTaskIds.has(block.task_id)) return false;
+    if (block.kind === "buffer") {
+      const bufferStart = timeMinutes(block.start_time.slice(0, 5));
+      const bufferEnd = timeMinutes(block.end_time.slice(0, 5));
+      const newStart = timeMinutes(normalizeProposalTime(items[0].start_time));
+      const newEnd = timeMinutes(normalizeProposalTime(items[0].end_time));
+      if (intervalsOverlap(bufferStart, bufferEnd, newStart, newEnd)) return false;
+    }
+    return true;
+  });
+
   const occupiedIntervals = preservedBlocks.map((block) => ({ start: timeMinutes(block.start_time.slice(0, 5)), end: timeMinutes(block.end_time.slice(0, 5)), title: block.title }));
   const proposedIntervals: Array<{ start: number; end: number }> = [];
 
@@ -175,14 +183,14 @@ export async function confirmAIProposal(proposal: PlanningProposal, conversation
     const title = taskMap.get(item.task_id!)?.title ?? "Task";
     const start = timeMinutes(normalizeProposalTime(item.start_time));
     const end = timeMinutes(normalizeProposalTime(item.end_time));
-    if (start < 0 || end <= start) throw new Error("Invalid schedule time for \"" + title + "\".");
-    if (item.estimated_minutes !== undefined && item.estimated_minutes !== end - start) throw new Error("The scheduled duration for \"" + title + "\" does not match its estimated minutes.");
-    if (!workingRules.some((rule) => start >= timeMinutes(rule.start_time) && end <= timeMinutes(rule.end_time))) throw new Error("\"" + title + "\" falls outside your configured working hours.");
-    if (reservationRules.some((rule) => intervalsOverlap(start, end, timeMinutes(rule.start_time), timeMinutes(rule.end_time)))) throw new Error("\"" + title + "\" overlaps a reserved availability window.");
+    if (start < 0 || end <= start) throw new Error(`Invalid schedule time for "${title}".`);
+    if (item.estimated_minutes !== undefined && item.estimated_minutes !== end - start) throw new Error(`The scheduled duration for "${title}" does not match its estimated minutes.`);
+    if (!workingRules.some((rule) => start >= timeMinutes(rule.start_time) && end <= timeMinutes(rule.end_time))) throw new Error(`"${title}" falls outside your configured working hours.`);
+    if (reservationRules.some((rule) => intervalsOverlap(start, end, timeMinutes(rule.start_time), timeMinutes(rule.end_time)))) throw new Error(`"${title}" overlaps a reserved availability window.`);
     const commitment = (commitmentsResult.data ?? []).find((item) => intervalsOverlap(start, end, timeMinutes(item.start_time), timeMinutes(item.end_time)));
-    if (commitment) throw new Error("\"" + title + "\" overlaps the fixed commitment \"" + commitment.title + "\".");
-    if (calendarEvents.some((event) => intervalsOverlap(start, end, timeMinutes(event.startTime), timeMinutes(event.endTime)))) throw new Error("\"" + title + "\" overlaps a Google Calendar event.");
-    if (occupiedIntervals.some((existing) => intervalsOverlap(start, end, existing.start, existing.end))) throw new Error("\"" + title + "\" overlaps an existing block in today's plan.");
+    if (commitment) throw new Error(`"${title}" overlaps the fixed commitment "${commitment.title}".`);
+    if (calendarEvents.some((event) => intervalsOverlap(start, end, timeMinutes(event.startTime), timeMinutes(event.endTime)))) throw new Error(`"${title}" overlaps a Google Calendar event.`);
+    if (occupiedIntervals.some((existing) => intervalsOverlap(start, end, existing.start, existing.end))) throw new Error(`"${title}" overlaps an existing block in today's plan.`);
     if (proposedIntervals.some((existing) => intervalsOverlap(start, end, existing.start, existing.end))) throw new Error("The proposal contains overlapping work blocks.");
     proposedIntervals.push({ start, end });
   }
@@ -194,26 +202,36 @@ export async function confirmAIProposal(proposal: PlanningProposal, conversation
 
   const proposedTaskIdSet = new Set(taskIds);
   const mergedUnscheduled = existingUnscheduled.filter((item) => !proposedTaskIdSet.has(item.task_id)).map((item) => ({ task_id: item.task_id, reason: item.reason }));
+  const nextBufferMinutes = Math.max(0, (existingPlan.buffer_minutes ?? 0) - removedBufferMinutes);
 
   const { data: draft, error: draftError } = await supabase.rpc("create_draft_plan", {
     p_user_id: user.id,
     p_plan_date: planDate,
-    p_buffer_minutes: existingPlan?.buffer_minutes ?? 0,
+    p_buffer_minutes: nextBufferMinutes,
     p_generated_at: new Date().toISOString(),
     p_blocks: mergedBlocks,
     p_unscheduled: mergedUnscheduled,
   }).single<DailyPlan>();
   if (draftError || !draft) throw new Error(draftError?.message ?? "Could not create the updated schedule draft.");
 
-  const confirmation = new FormData();
-  confirmation.set("plan_id", draft.id);
-  await confirmPlan(confirmation);
+  if (safeProposal.type === "propose_reschedule") {
+    const { data: rescheduledBlock, error: rescheduledBlockError } = await supabase.from("plan_blocks").select("id").eq("daily_plan_id", draft.id).eq("user_id", user.id).eq("task_id", taskIds[0]).maybeSingle<{ id: string }>();
+    if (rescheduledBlockError || !rescheduledBlock) throw new Error(rescheduledBlockError?.message ?? "Could not validate the rescheduled task block.");
+    const { error: dbValidationError } = await supabase.rpc("edit_draft_plan_block", {
+      p_block_id: rescheduledBlock.id,
+      p_start_time: normalizeProposalTime(items[0].start_time),
+      p_end_time: normalizeProposalTime(items[0].end_time),
+    });
+    if (dbValidationError) throw new Error(dbValidationError.message);
+  }
 
   if (conversationId) {
     const { error: historyError } = await supabase.from("ai_conversations").update({ confirmed: true, confirmed_plan_id: draft.id }).eq("id", conversationId).eq("user_id", user.id);
-    if (historyError) console.error("AI conversation confirmation persistence error:", historyError);
+    if (historyError) throw new Error(`Draft was created, but the AI proposal could not be recorded as confirmed: ${historyError.message}`);
   }
-  return { ok: true, plan_id: draft.id, message: "Schedule confirmed and published to AI Planner." };
+
+  revalidatePath("/today");
+  return { ok: true, plan_id: draft.id, message: "Schedule proposal applied to a draft plan. Review it on Today and use Confirm plan to publish it to AI Planner." };
 }
 
 export async function confirmPlan(formData: FormData) {
