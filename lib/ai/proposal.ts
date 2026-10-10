@@ -2,7 +2,6 @@ export const PROPOSAL_TYPES = [
   "get_today_context",
   "suggest_schedule",
   "propose_reschedule",
-  "propose_task_draft",
   "summarize_day",
 ] as const;
 

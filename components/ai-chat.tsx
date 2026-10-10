@@ -205,7 +205,7 @@ export function AIChat() {
                 >
                   {confirming ? "Confirming..." : "Confirm schedule"}
                 </button>
-                <span className="text-xs text-slate-500">Review the times above before confirming.</span>
+                <span className="text-xs text-slate-500">Confirming creates a draft for review on Today; Google Calendar is unchanged.</span>
               </div>
             ) : null}
 

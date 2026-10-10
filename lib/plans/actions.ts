@@ -9,7 +9,7 @@ import { type AvailabilityRuleInput, type FixedCommitmentInput } from "@/lib/sch
 import { buildDraftPlan, type ExistingManualBlock } from "@/lib/plans/planner";
 import { getValidAccessToken } from "@/lib/google/oauth";
 import { fetchCalendarEvents } from "@/lib/google/calendar";
-import { createPlannerEvent, deletePlannerEventsForDate, getOrCreatePlannerCalendar } from "@/lib/google/planner-calendar";
+import { createPlannerEvent, deletePlannerEvent, getOrCreatePlannerCalendar, updatePlannerEvent } from "@/lib/google/planner-calendar";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { DailyPlan, PlanBlock, Task } from "@/lib/types";
 import { validatePlanningProposal } from "@/lib/ai/validate-proposal";
@@ -237,45 +237,101 @@ export async function confirmAIProposal(proposal: PlanningProposal, conversation
 export async function confirmPlan(formData: FormData) {
   const { supabase, user } = await requireUser();
   const planId = requiredText(formData, "plan_id", "Plan ID");
-  const { data: plan, error } = await supabase.rpc("confirm_daily_plan", { p_plan_id: planId }).single<DailyPlan>();
-  if (error || !plan) throw new Error(error?.message ?? "Could not confirm plan.");
+  const { data: plan, error } = await supabase.rpc("begin_daily_plan_publication", { p_plan_id: planId }).single<DailyPlan>();
+  if (error || !plan) throw new Error(error?.message ?? "Could not begin plan publication.");
+  const markPublicationFailed = async () => {
+    const { error: failureError } = await supabase.rpc("fail_daily_plan_publication", { p_plan_id: plan.id });
+    if (failureError) console.error("Could not mark plan publication as failed:", failureError);
+  };
 
   const tokenResult = await getValidAccessToken(user.id);
   if ("error" in tokenResult) {
-    if (tokenResult.error === "not_connected") { revalidatePath("/today"); return; }
-    if (tokenResult.error === "reconnect_required") throw new Error("Plan confirmed, but Google Calendar needs to be reconnected before it can be published.");
-    throw new Error("Plan confirmed, but Google Calendar could not be accessed. Please try again.");
+    await markPublicationFailed();
+    revalidatePath("/today");
+    if (tokenResult.error === "not_connected") throw new Error("Google Calendar must be connected before the plan can be published.");
+    if (tokenResult.error === "reconnect_required") throw new Error("Google Calendar needs to be reconnected before the plan can be published.");
+    throw new Error("Google Calendar could not be accessed. Please try again.");
   }
 
   const cookieStore = await cookies();
   const timeZone = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value;
-  if (!timeZone) throw new Error("Plan confirmed, but your timezone could not be determined. Please refresh and try again.");
-  try { new Intl.DateTimeFormat("en-US", { timeZone }); } catch { throw new Error("Plan confirmed, but your timezone is invalid. Please refresh and try again."); }
+  if (!timeZone) { await markPublicationFailed(); throw new Error("Your timezone could not be determined. Please refresh and try again."); }
+  try { new Intl.DateTimeFormat("en-US", { timeZone }); } catch { await markPublicationFailed(); throw new Error("Your timezone is invalid. Please refresh and try again."); }
 
   const { data: blocks, error: blocksError } = await supabase.from("plan_blocks").select("*").eq("daily_plan_id", plan.id).eq("user_id", user.id).eq("kind", "task").returns<PlanBlock[]>();
-  if (blocksError) throw new Error(`Plan confirmed, but its work blocks could not be loaded: ${blocksError.message}`);
+  if (blocksError) { await markPublicationFailed(); throw new Error(`Its work blocks could not be loaded: ${blocksError.message}`); }
 
   try {
     const calendarId = await getOrCreatePlannerCalendar(user.id, tokenResult.token);
     const serviceRole = createServiceRoleClient();
-    await deletePlannerEventsForDate(tokenResult.token, calendarId, plan.plan_date, timeZone);
-
     const { data: dayPlans, error: dayPlansError } = await serviceRole.from("daily_plans").select("id").eq("user_id", user.id).eq("plan_date", plan.plan_date);
-    if (dayPlansError) throw new Error(`Could not clear previous AI Planner mappings: ${dayPlansError.message}`);
+    if (dayPlansError) throw new Error(`Could not load previous AI Planner mappings: ${dayPlansError.message}`);
     const dayPlanIds = (dayPlans ?? []).map((item) => item.id);
-    if (dayPlanIds.length > 0) {
-      const { error: mappingDeleteError } = await serviceRole.from("google_planner_events").delete().eq("user_id", user.id).in("daily_plan_id", dayPlanIds);
-      if (mappingDeleteError) throw new Error(`Could not clear previous AI Planner mappings: ${mappingDeleteError.message}`);
+    const { data: existingMappings, error: mappingsError } = await serviceRole
+      .from("google_planner_events")
+      .select("id,daily_plan_id,plan_block_id,google_event_id")
+      .eq("user_id", user.id)
+      .in("daily_plan_id", dayPlanIds.length > 0 ? dayPlanIds : [plan.id]);
+    if (mappingsError) throw new Error(`Could not load AI Planner mappings: ${mappingsError.message}`);
+
+    const currentBlockIds = new Set((blocks ?? []).map((block) => block.id));
+    const currentMappings = new Map(
+      (existingMappings ?? [])
+        .filter((mapping) => mapping.daily_plan_id === plan.id)
+        .map((mapping) => [mapping.plan_block_id, mapping]),
+    );
+
+    for (const mapping of existingMappings ?? []) {
+      if (mapping.daily_plan_id === plan.id && currentBlockIds.has(mapping.plan_block_id)) continue;
+      await deletePlannerEvent(tokenResult.token, calendarId, mapping.google_event_id);
+      const { error: mappingDeleteError } = await serviceRole
+        .from("google_planner_events")
+        .delete()
+        .eq("id", mapping.id)
+        .eq("user_id", user.id);
+      if (mappingDeleteError) throw new Error(`Could not remove stale AI Planner mapping: ${mappingDeleteError.message}`);
     }
 
     for (const block of blocks ?? []) {
-      const googleEventId = await createPlannerEvent(tokenResult.token, calendarId, { planDate: plan.plan_date, timeZone, title: block.title, startTime: block.start_time, endTime: block.end_time, dailyPlanId: plan.id, planBlockId: block.id });
+      const input = { planDate: plan.plan_date, timeZone, title: block.title, startTime: block.start_time, endTime: block.end_time, dailyPlanId: plan.id, planBlockId: block.id };
+      const existing = currentMappings.get(block.id);
+      if (existing) {
+        try {
+          await updatePlannerEvent(tokenResult.token, calendarId, existing.google_event_id, input);
+          continue;
+        } catch (updateError) {
+          if (!(updateError instanceof Error) || !updateError.message.includes("no longer exists")) throw updateError;
+          const recreatedEventId = await createPlannerEvent(tokenResult.token, calendarId, input);
+          const { error: mappingUpdateError } = await serviceRole
+            .from("google_planner_events")
+            .update({ google_event_id: recreatedEventId })
+            .eq("id", existing.id)
+            .eq("user_id", user.id);
+          if (mappingUpdateError) throw new Error(`Google event ${recreatedEventId} was created, but its mapping could not be updated: ${mappingUpdateError.message}`);
+          continue;
+        }
+      }
+
+      const googleEventId = await createPlannerEvent(tokenResult.token, calendarId, input);
       const { error: mappingError } = await serviceRole.from("google_planner_events").insert({ user_id: user.id, daily_plan_id: plan.id, plan_block_id: block.id, google_event_id: googleEventId });
-      if (mappingError) throw new Error(`Google event ${googleEventId} was created, but its local mapping could not be saved: ${mappingError.message}`);
+      if (mappingError) {
+        try {
+          await deletePlannerEvent(tokenResult.token, calendarId, googleEventId);
+        } catch (cleanupError) {
+          console.error("Could not clean up an unmapped AI Planner event:", cleanupError);
+        }
+        throw new Error(`Google event ${googleEventId} was created, but its local mapping could not be saved: ${mappingError.message}`);
+      }
     }
   } catch (publishError) {
+    await markPublicationFailed();
     const message = publishError instanceof Error ? publishError.message : "Unknown publishing error.";
-    throw new Error(`Plan confirmed, but publishing to AI Planner failed: ${message}`);
+    throw new Error(`Publishing to AI Planner failed: ${message}`);
+  }
+  const { error: completionError } = await supabase.rpc("complete_daily_plan_publication", { p_plan_id: plan.id });
+  if (completionError) {
+    await markPublicationFailed();
+    throw new Error(`AI Planner published successfully, but the plan status could not be updated: ${completionError.message}`);
   }
   revalidatePath("/today");
 }
