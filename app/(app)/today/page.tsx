@@ -94,7 +94,7 @@ export default async function TodayPage() {
   ]);
 
   const plans = allPlans ?? [];
-  const activePlan = plans.find((p) => p.status === "draft" || p.status === "confirmed") ?? null;
+  const activePlan = plans.find((p) => ["draft", "publishing", "publication_failed", "confirmed"].includes(p.status)) ?? null;
   const historyPlans = plans.filter((p) => p.status === "superseded" || p.status === "completed");
   const planIds = plans.map((p) => p.id);
 

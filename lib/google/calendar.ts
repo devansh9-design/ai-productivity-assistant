@@ -27,20 +27,31 @@ interface GoogleCalendarEvent {
   start: GoogleCalendarEventDateTime;
   end: GoogleCalendarEventDateTime;
   status?: string;
+  extendedProperties?: {
+    private?: Record<string, string>;
+  };
 }
 
 interface GoogleCalendarListResponse {
   items?: GoogleCalendarEvent[];
+  nextPageToken?: string;
+}
+
+interface GoogleCalendarResource {
+  id: string;
+  summary?: string;
+  description?: string;
+}
+
+interface GoogleCalendarResourcesResponse {
+  items?: GoogleCalendarResource[];
+  nextPageToken?: string;
 }
 
 // ---------------------------------------------------------------------------
 // Timezone-aware time extraction (exported for testing)
 // ---------------------------------------------------------------------------
 
-/**
- * Converts an ISO 8601 datetime string to { date: "YYYY-MM-DD", time: "HH:MM" }
- * in the specified timezone using Intl.DateTimeFormat.
- */
 export function toLocalParts(
   isoDatetime: string,
   timeZone: string,
@@ -62,7 +73,6 @@ export function toLocalParts(
   const year = get("year");
   const month = get("month");
   const day = get("day");
-  // Intl may return "24" for midnight in some locales; normalize to "00"
   const rawHour = get("hour");
   const hour = rawHour === "24" ? "00" : rawHour;
   const minute = get("minute");
@@ -73,26 +83,18 @@ export function toLocalParts(
   };
 }
 
-/**
- * Computes the exact UTC time range for a given local date in a specific IANA timezone.
- * Handles DST transitions implicitly by determining the exact UTC time where the
- * target local time hits 00:00:00.
- */
 export function getUtcBoundsForLocalDate(
   planDate: string,
   timeZone: string,
 ): { timeMin: string; timeMax: string } {
   const getUtcForLocal = (localDateStr: string, localTimeStr: string) => {
-    // Initial guess: treat the local date/time as UTC
     let utcTime = new Date(`${localDateStr}T${localTimeStr}Z`).getTime();
-    
-    // Iteratively adjust until formatting the UTC time in the target timezone
-    // matches the requested local date/time exactly.
+
     for (let i = 0; i < 5; i++) {
       const parts = toLocalParts(new Date(utcTime).toISOString(), timeZone);
       const formattedLocal = `${parts.date}T${parts.time}:00Z`;
       const targetLocal = `${localDateStr}T${localTimeStr}:00Z`;
-      
+
       const diff = new Date(targetLocal).getTime() - new Date(formattedLocal).getTime();
       if (diff === 0) break;
       utcTime += diff;
@@ -100,10 +102,7 @@ export function getUtcBoundsForLocalDate(
     return new Date(utcTime).toISOString();
   };
 
-  // timeMin: Start of the target plan date
   const timeMin = getUtcForLocal(planDate, "00:00");
-  
-  // timeMax: Start of the following day
   const d = new Date(`${planDate}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + 1);
   const nextDayStr = d.toISOString().split("T")[0];
@@ -119,11 +118,11 @@ export function getUtcBoundsForLocalDate(
 /**
  * Normalizes raw Google Calendar events for a specific plan date and timezone.
  *
- * Policy: All-day events (those with start.date instead of start.dateTime)
- * are intentionally skipped to prevent full-day lockouts. This avoids blocking
- * all task scheduling on days with all-day calendar markers (e.g. birthdays,
- * holidays, multi-day conferences). Revisit when partial-day handling or
- * user-configurable all-day behavior is implemented.
+ * All-day events are intentionally skipped so a birthday/holiday does not
+ * block the entire working day. Events created by this application are also
+ * skipped because they are already represented by the planner's own plan
+ * blocks; otherwise a confirmed AI Planner event would block the same slot
+ * when a plan is regenerated.
  */
 export function normalizeCalendarEvents(
   rawEvents: GoogleCalendarEvent[],
@@ -133,28 +132,23 @@ export function normalizeCalendarEvents(
   const results: CalendarEvent[] = [];
 
   for (const event of rawEvents) {
-    // Skip cancelled events
     if (event.status === "cancelled") continue;
 
-    // Skip all-day events (start.date without start.dateTime).
-    // See docstring above for rationale.
+    if (event.extendedProperties?.private?.app === "ai-productivity-assistant") {
+      continue;
+    }
+
     if (!event.start.dateTime || !event.end.dateTime) continue;
 
     const startLocal = toLocalParts(event.start.dateTime, timeZone);
     const endLocal = toLocalParts(event.end.dateTime, timeZone);
 
-    // Only include events that overlap with the plan date
-    // If event starts after plan date or ends before plan date, skip it
     if (startLocal.date > planDate && endLocal.date > planDate) continue;
     if (endLocal.date < planDate && startLocal.date < planDate) continue;
 
-    // Clamp to plan date boundaries
-    // If event starts before plan date (spans from previous day), clamp start to 00:00
     const startTime = startLocal.date < planDate ? "00:00" : startLocal.time;
-    // If event ends after plan date (spans into next day), clamp end to 23:59
     const endTime = endLocal.date > planDate ? "23:59" : endLocal.time;
 
-    // Skip zero-duration or negative-duration events within the plan date
     if (startTime >= endTime) continue;
 
     results.push({
@@ -173,41 +167,80 @@ export function normalizeCalendarEvents(
 // ---------------------------------------------------------------------------
 
 /**
- * Fetches events from the user's primary Google Calendar for the given plan date.
- * Returns normalized CalendarEvent[] in the user's timezone.
+ * Fetches timed events from every calendar visible to the connected Google
+ * account for the given local plan date. This includes secondary calendars,
+ * including the app's dedicated "AI Planner" calendar.
  *
- * @throws Error on API failure (caller should handle as calendar_sync_failed)
+ * Manually-created events on the AI Planner calendar are treated as real
+ * commitments. Events created by this app are filtered out because they are
+ * already represented by the app's own plan blocks.
  */
 export async function fetchCalendarEvents(
   accessToken: string,
   planDate: string,
   timeZone: string,
 ): Promise<CalendarEvent[]> {
-  // Build exact UTC bounds for the local day to avoid missing events due to UTC shift
   const { timeMin, timeMax } = getUtcBoundsForLocalDate(planDate, timeZone);
+  const authHeaders = { Authorization: `Bearer ${accessToken}` };
 
-  const params = new URLSearchParams({
-    timeMin,
-    timeMax,
-    timeZone,
-    singleEvents: "true",
-    orderBy: "startTime",
-    maxResults: "250",
-  });
+  const calendars: GoogleCalendarResource[] = [];
+  let calendarPageToken: string | undefined;
 
-  const response = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`,
-    {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    },
-  );
+  do {
+    const calendarParams = new URLSearchParams({
+      maxResults: "250",
+      showHidden: "false",
+    });
+    if (calendarPageToken) calendarParams.set("pageToken", calendarPageToken);
 
-  if (!response.ok) {
-    throw new Error(
-      `Google Calendar API request failed (${response.status}): ${await response.text()}`,
+    const calendarResponse = await fetch(
+      `https://www.googleapis.com/calendar/v3/users/me/calendarList?${calendarParams.toString()}`,
+      { headers: authHeaders },
     );
+
+    if (!calendarResponse.ok) {
+      throw new Error(
+        `Google Calendar list request failed (${calendarResponse.status}): ${await calendarResponse.text()}`,
+      );
+    }
+
+    const calendarBody = (await calendarResponse.json()) as GoogleCalendarResourcesResponse;
+    calendars.push(...(calendarBody.items ?? []));
+    calendarPageToken = calendarBody.nextPageToken;
+  } while (calendarPageToken);
+
+  const allEvents: GoogleCalendarEvent[] = [];
+
+  for (const calendar of calendars) {
+    let pageToken: string | undefined;
+
+    do {
+      const params = new URLSearchParams({
+        timeMin,
+        timeMax,
+        timeZone,
+        singleEvents: "true",
+        orderBy: "startTime",
+        maxResults: "2500",
+      });
+      if (pageToken) params.set("pageToken", pageToken);
+
+      const response = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.id)}/events?${params.toString()}`,
+        { headers: authHeaders },
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Google Calendar API request failed for ${calendar.summary ?? calendar.id} (${response.status}): ${await response.text()}`,
+        );
+      }
+
+      const body = (await response.json()) as GoogleCalendarListResponse;
+      allEvents.push(...(body.items ?? []));
+      pageToken = body.nextPageToken;
+    } while (pageToken);
   }
 
-  const body = (await response.json()) as GoogleCalendarListResponse;
-  return normalizeCalendarEvents(body.items ?? [], planDate, timeZone);
+  return normalizeCalendarEvents(allEvents, planDate, timeZone);
 }
