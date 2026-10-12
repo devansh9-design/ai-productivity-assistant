@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ActionForm } from "@/components/action-form";
@@ -5,9 +6,14 @@ import { ActionSubmitButton } from "@/components/action-submit-button";
 import { createAvailabilityRule, createFixedCommitment, deleteAvailabilityRule, deleteFixedCommitment } from "@/lib/scheduler/actions";
 import { getGoogleConnectUrl, disconnectGoogleCalendar } from "@/lib/google/actions";
 import { isGoogleCalendarConnected } from "@/lib/google/oauth";
+import { savePlanningPreferences } from "@/lib/preferences/actions";
+import { loadPersonalization } from "@/lib/preferences/load";
+import { MIN_DURATION_SAMPLES } from "@/lib/preferences/preferences";
+import { DEFAULT_TIMEZONE, TIMEZONE_COOKIE_NAME } from "@/lib/tasks/timezone";
 import type { AvailabilityRule, FixedCommitment } from "@/lib/types";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const RULE_LABELS: Record<string, string> = { working: "working hours", high_focus: "high-focus window", exercise: "gym / exercise" };
 
 function shortTime(value: string) {
   return value.slice(0, 5);
@@ -36,6 +42,8 @@ export default async function SettingsPage({
 
   // Google Calendar connection status (service-role check, never exposes tokens)
   const googleConnected = user ? await isGoogleCalendarConnected(user.id) : false;
+  const timeZone = (await cookies()).get(TIMEZONE_COOKIE_NAME)?.value || DEFAULT_TIMEZONE;
+  const { preferences, durationFactor, durationSamples } = await loadPersonalization(supabase, timeZone);
 
   const params = await searchParams;
   const googleStatus = typeof params.google === "string" ? params.google : null;
@@ -58,7 +66,7 @@ export default async function SettingsPage({
           </label>
           <label className="text-sm font-medium text-slate-800">Type
             <select name="kind" defaultValue="working" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900">
-              <option value="working">Working hours</option><option value="high_focus">High-focus window</option><option value="sleep">Sleep</option><option value="meal">Meal</option><option value="travel">Travel</option><option value="break">Break</option>
+              <option value="working">Working hours</option><option value="high_focus">High-focus window</option><option value="sleep">Sleep</option><option value="meal">Meal</option><option value="travel">Travel</option><option value="break">Break</option><option value="exercise">Gym / exercise</option>
             </select>
           </label>
           <label className="text-sm font-medium text-slate-800">Start time<input name="start_time" type="time" required className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" /></label>
@@ -72,9 +80,34 @@ export default async function SettingsPage({
         {rulesError && <p role="alert" className="mt-3 text-sm text-rose-700">Could not load schedule rules: {rulesError.message}</p>}
         {!rulesError && (rules ?? []).length === 0 && <p className="mt-3 text-sm text-slate-600">No working availability yet. Add working hours before generating a plan.</p>}
         <div className="mt-3 space-y-2">
-          {(rules ?? []).map((rule) => <div key={rule.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700"><span>{WEEKDAYS[rule.weekday]}: {rule.kind.replace("_", " ")} from {shortTime(rule.start_time)} to {shortTime(rule.end_time)}</span><form action={deleteAvailabilityRule}><input type="hidden" name="id" value={rule.id} /><button className="font-medium text-rose-700 hover:text-rose-800">Remove</button></form></div>)}
+          {(rules ?? []).map((rule) => <div key={rule.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700"><span>{WEEKDAYS[rule.weekday]}: {RULE_LABELS[rule.kind] ?? rule.kind} from {shortTime(rule.start_time)} to {shortTime(rule.end_time)}</span><form action={deleteAvailabilityRule}><input type="hidden" name="id" value={rule.id} /><button className="font-medium text-rose-700 hover:text-rose-800">Remove</button></form></div>)}
         </div>
       </div>
+
+      <ActionForm action={savePlanningPreferences} resetOnSuccess={false} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+        <h2 className="text-lg font-semibold text-slate-900">Planning preferences</h2>
+        <p className="mt-1 text-sm text-slate-600">These apply the next time you generate or replan today&apos;s schedule.</p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className="text-sm font-medium text-slate-800">Buffer (% of free working time)
+            <input name="buffer_percent" type="number" min={0} max={50} step={1} required defaultValue={preferences.bufferPercent} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" />
+          </label>
+          <label className="text-sm font-medium text-slate-800">Longest low-energy session (minutes)
+            <input name="low_energy_max_block_minutes" type="number" min={15} max={240} step={5} required defaultValue={preferences.lowEnergyMaxBlockMinutes} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" />
+          </label>
+        </div>
+        <label className="mt-4 flex items-start gap-2 text-sm text-slate-800">
+          <input name="adapt_to_actual_durations" type="checkbox" defaultChecked={preferences.adaptToActualDurations} className="mt-0.5" />
+          <span>
+            Adjust task estimates using how long completed tasks actually took.
+            <span className="block text-xs text-slate-500">
+              {durationSamples >= MIN_DURATION_SAMPLES
+                ? `Based on ${durationSamples} recent completed tasks, the current adjustment is x${durationFactor.toFixed(2)}.`
+                : `Needs at least ${MIN_DURATION_SAMPLES} recently completed tasks with actual minutes recorded (currently ${durationSamples}).`}
+            </span>
+          </span>
+        </label>
+        <ActionSubmitButton pendingLabel="Saving..." className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Save preferences</ActionSubmitButton>
+      </ActionForm>
 
       <ActionForm action={createFixedCommitment} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">Fixed commitment</h2>

@@ -14,6 +14,9 @@ import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
 import { generateDraftPlan } from "@/lib/plans/actions";
 import { PlanTimeline } from "@/components/plan-timeline";
 import { PlanHistory } from "@/components/plan-history";
+import { ReplanPanel } from "@/components/replan-panel";
+import { InsightsCard } from "@/components/insights-card";
+import { loadPersonalization } from "@/lib/preferences/load";
 import type { Checkin, DailyPlan, FixedCommitment, JournalEntry, PlanBlock, PlanUnscheduledTask, Task, TaskSession } from "@/lib/types";
 
 const RECENT_REFLECTIONS_LIMIT = 7;
@@ -93,6 +96,7 @@ export default async function TodayPage() {
     supabase.from("fixed_commitments").select("*").eq("commitment_date", todayISODate).order("start_time").returns<FixedCommitment[]>(),
   ]);
 
+  const personalization = await loadPersonalization(supabase, timeZone);
   const plans = allPlans ?? [];
   const activePlan = plans.find((p) => ["draft", "publishing", "publication_failed", "confirmed"].includes(p.status)) ?? null;
   const historyPlans = plans.filter((p) => p.status === "superseded" || p.status === "completed");
@@ -161,6 +165,12 @@ export default async function TodayPage() {
           fixedCommitments={fixedCommitments ?? []}
         />
       )}
+
+      {activePlan && (activePlan.status === "draft" || activePlan.status === "confirmed") && (
+        <ReplanPanel lowEnergyMaxBlockMinutes={personalization.preferences.lowEnergyMaxBlockMinutes} />
+      )}
+
+      <InsightsCard insights={personalization.insights} durationFactor={personalization.durationFactor} />
 
       <PlanHistory
         entries={historyPlans.map((plan) => ({

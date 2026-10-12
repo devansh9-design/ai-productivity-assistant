@@ -1,4 +1,4 @@
-export type SchedulerRuleKind = "working" | "high_focus" | "sleep" | "meal" | "travel" | "break";
+export type SchedulerRuleKind = "working" | "high_focus" | "sleep" | "meal" | "travel" | "break" | "exercise";
 export type SchedulerEnergyLevel = "low" | "medium" | "high" | null;
 export type SchedulerPriority = "low" | "medium" | "high" | "urgent";
 
@@ -31,12 +31,34 @@ export interface FixedCommitmentInput {
   endTime: string;
 }
 
+/**
+ * Optional knobs layered on the Day 4 rules. Every field defaults to the
+ * original behavior, so callers that pass no policy get identical plans.
+ */
+export interface SchedulePolicy {
+  /** Share of free working time reserved as buffer, 0-50. Defaults to 20. */
+  bufferPercent?: number;
+  /** Multiplier applied to estimates, learned from actual durations. Defaults to 1. */
+  durationFactor?: number;
+  /** Longest single task block; longer tasks get a partial session of this length. */
+  maxBlockMinutes?: number | null;
+  /** HH:mm local time; nothing is placed before it (used when replanning mid-day). */
+  earliestStartTime?: string | null;
+  /** Defer high-energy tasks and place lighter work first. */
+  lowEnergy?: boolean;
+  /** Task statuses that may be scheduled. Defaults to todo only. */
+  eligibleStatuses?: string[];
+  /** Must-do tasks already on the plan; they count against the three-per-day limit. */
+  mustDoAlreadyScheduled?: number;
+}
+
 export interface ScheduleInput {
   date: string;
   weekday: number;
   availabilityRules: AvailabilityRuleInput[];
   fixedCommitments: FixedCommitmentInput[];
   tasks: SchedulerTask[];
+  policy?: SchedulePolicy;
 }
 
 export interface ScheduledBlock {
@@ -65,7 +87,11 @@ interface Interval {
 }
 
 const PRIORITY_POINTS: Record<SchedulerPriority, number> = { low: 10, medium: 20, high: 30, urgent: 40 };
-const ELIGIBLE_STATUSES = new Set(["todo"]);
+const DEFAULT_ELIGIBLE_STATUSES = ["todo"];
+const DEFAULT_BUFFER_PERCENT = 20;
+const MUST_DO_LIMIT = 3;
+export const NO_TIME_REASON ="No contiguous time remains within working hours after commitments and buffer.";
+export const LOW_ENERGY_DEFERRAL_REASON = "low_energy: high-energy work is deferred while your energy is low.";
 
 function timeToMinutes(value: string): number | null {
   const match = /^(\d{2}):(\d{2})/.exec(value);
@@ -164,6 +190,19 @@ function sortTasks(tasks: SchedulerTask[], date: string): SchedulerTask[] {
   );
 }
 
+/** Scaled estimate (rounded up to 5 minutes), capped by maxBlockMinutes when set. */
+export function effectiveDuration(estimatedMinutes: number, policy: SchedulePolicy = {}): number {
+  const factor = policy.durationFactor ?? 1;
+  let minutes = factor === 1 ? estimatedMinutes : Math.max(5, Math.ceil((estimatedMinutes * factor) / 5) * 5);
+  if (policy.maxBlockMinutes && minutes > policy.maxBlockMinutes) minutes = policy.maxBlockMinutes;
+  return minutes;
+}
+
+function lighterFirst(tasks: SchedulerTask[]): SchedulerTask[] {
+  const rank = (task: SchedulerTask) => (task.energyLevel === "low" ? 0 : 1);
+  return [...tasks].sort((a, b) => rank(a) - rank(b));
+}
+
 function findPlacement(slots: Interval[], duration: number, preferred: Interval[]): Interval | null {
   const candidates = [...preferred, ...slots];
   const seen = new Set<string>();
@@ -188,21 +227,27 @@ function removePlacement(slots: Interval[], placement: Interval): Interval[] {
 
 /** Pure, deterministic policy engine. It never reads time, storage, UI, or external services. */
 export function generateSchedule(input: ScheduleInput): ScheduleResult {
+  const policy = input.policy ?? {};
+  const bufferPercent = Math.min(50, Math.max(0, policy.bufferPercent ?? DEFAULT_BUFFER_PERCENT));
+  const eligibleStatuses = new Set(policy.eligibleStatuses ?? DEFAULT_ELIGIBLE_STATUSES);
   const rules = input.availabilityRules.filter((rule) => rule.weekday === input.weekday);
-  const working = rules.filter((rule) => rule.kind === "working").map((rule) => makeInterval(rule.startTime, rule.endTime)).filter((rule): rule is Interval => Boolean(rule));
+  const configuredWorking = rules.filter((rule) => rule.kind === "working").map((rule) => makeInterval(rule.startTime, rule.endTime)).filter((rule): rule is Interval => Boolean(rule));
   const reservations = rules.filter((rule) => !["working", "high_focus"].includes(rule.kind)).map((rule) => makeInterval(rule.startTime, rule.endTime)).filter((rule): rule is Interval => Boolean(rule));
   const fixed = input.fixedCommitments.filter((commitment) => commitment.date === input.date).map((commitment) => makeInterval(commitment.startTime, commitment.endTime)).filter((commitment): commitment is Interval => Boolean(commitment));
   const highFocus = rules.filter((rule) => rule.kind === "high_focus").map((rule) => makeInterval(rule.startTime, rule.endTime)).filter((rule): rule is Interval => Boolean(rule));
-  const schedulableTasks = input.tasks.filter((task) => ELIGIBLE_STATUSES.has(task.status));
+  const schedulableTasks = input.tasks.filter((task) => eligibleStatuses.has(task.status));
   const unscheduled: UnscheduledTask[] = [];
 
-  if (working.length === 0) {
+  if (configuredWorking.length === 0) {
     return { blocks: [], unscheduled: schedulableTasks.map((task) => ({ taskId: task.id, reason: "No working availability is configured for this day." })), bufferMinutes: 0, availableMinutes: 0 };
   }
 
+  const earliest = policy.earliestStartTime ? timeToMinutes(policy.earliestStartTime) : null;
+  const working = earliest ? subtractIntervals(configuredWorking, [{ start: 0, end: earliest }]) : configuredWorking;
+
   const freeBeforeBuffer = subtractIntervals(working, [...reservations, ...fixed]);
   const availableMinutes = totalMinutes(freeBeforeBuffer);
-  const bufferMinutes = Math.ceil(availableMinutes * 0.2);
+  const bufferMinutes = Math.ceil(availableMinutes * (bufferPercent / 100));
   const buffer = reserveBuffer(freeBeforeBuffer, bufferMinutes);
   let freeSlots = buffer.available;
   const blocks: ScheduledBlock[] = buffer.blocks.map((block) => ({ kind: "buffer", taskId: null, title: "Scheduling buffer", startTime: minutesToTime(block.start), endTime: minutesToTime(block.end) }));
@@ -210,19 +255,22 @@ export function generateSchedule(input: ScheduleInput): ScheduleResult {
   const withEstimate: SchedulerTask[] = [];
   for (const task of schedulableTasks) {
     if (!task.estimatedMinutes || task.estimatedMinutes <= 0) unscheduled.push({ taskId: task.id, reason: "An estimated duration is required to schedule this task." });
+    else if (policy.lowEnergy && task.energyLevel === "high") unscheduled.push({ taskId: task.id, reason: LOW_ENERGY_DEFERRAL_REASON });
     else withEstimate.push(task);
   }
+  const mustDoCapacity = Math.max(0, MUST_DO_LIMIT - (policy.mustDoAlreadyScheduled ?? 0));
   const rankedMustDos = sortTasks(withEstimate.filter((task) => task.mustDo), input.date);
-  const candidates = [...rankedMustDos.slice(0, 3), ...sortTasks(withEstimate.filter((task) => !task.mustDo), input.date)];
-  for (const task of rankedMustDos.slice(3)) unscheduled.push({ taskId: task.id, reason: "must_do_limit: only the top three must-do tasks can be scheduled in one day." });
+  const others = sortTasks(withEstimate.filter((task) => !task.mustDo), input.date);
+  const candidates = [...rankedMustDos.slice(0, mustDoCapacity), ...(policy.lowEnergy ? lighterFirst(others) : others)];
+  for (const task of rankedMustDos.slice(mustDoCapacity)) unscheduled.push({ taskId: task.id, reason: "must_do_limit: only the top three must-do tasks can be scheduled in one day." });
 
   for (const task of candidates) {
     const focusSlots = intersectIntervals(freeSlots, highFocus);
     const nonFocusSlots = subtractIntervals(freeSlots, highFocus);
     const preferred = task.energyLevel === "high" ? focusSlots : task.energyLevel === "low" ? nonFocusSlots : freeSlots;
-    const placement = findPlacement(freeSlots, task.estimatedMinutes as number, preferred);
+    const placement = findPlacement(freeSlots, effectiveDuration(task.estimatedMinutes as number, policy), preferred);
     if (!placement) {
-      unscheduled.push({ taskId: task.id, reason: "No contiguous time remains within working hours after commitments and buffer." });
+      unscheduled.push({ taskId: task.id, reason: NO_TIME_REASON });
       continue;
     }
     blocks.push({ kind: "task", taskId: task.id, title: task.title, startTime: minutesToTime(placement.start), endTime: minutesToTime(placement.end) });

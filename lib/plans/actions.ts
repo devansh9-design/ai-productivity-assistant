@@ -4,9 +4,11 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/require-user";
 import { TIMEZONE_COOKIE_NAME } from "@/lib/tasks/timezone";
-import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
-import { type AvailabilityRuleInput, type FixedCommitmentInput } from "@/lib/scheduler/engine";
+import { DEFAULT_TIMEZONE, getLocalTimeHHMM, getTodayISODate } from "@/lib/tasks/timezone";
+import { type AvailabilityRuleInput, type FixedCommitmentInput, type SchedulerTask } from "@/lib/scheduler/engine";
 import { buildDraftPlan, type ExistingManualBlock } from "@/lib/plans/planner";
+import { buildReplan, isReplanMode, type ReplanBlock } from "@/lib/plans/replan";
+import { loadPersonalization } from "@/lib/preferences/load";
 import { getValidAccessToken } from "@/lib/google/oauth";
 import { fetchCalendarEvents } from "@/lib/google/calendar";
 import { createPlannerEvent, deletePlannerEvent, getOrCreatePlannerCalendar, updatePlannerEvent } from "@/lib/google/planner-calendar";
@@ -79,7 +81,11 @@ export async function generateDraftPlan() {
     try { calendarEvents = await fetchCalendarEvents(tokenResult.token, planDate, tzCookie); } catch { return { error: "Could not sync Google Calendar events. Please try again." }; }
   }
 
-  const planResult = buildDraftPlan({ date: planDate, weekday, availabilityRules, fixedCommitments, tasks: engineTasks, existingManualBlocks: manualBlocks, calendarEvents });
+  const personalization = await loadPersonalization(supabase, timeZone);
+  const planResult = buildDraftPlan({
+    date: planDate, weekday, availabilityRules, fixedCommitments, tasks: engineTasks, existingManualBlocks: manualBlocks, calendarEvents,
+    policy: { bufferPercent: personalization.preferences.bufferPercent, durationFactor: personalization.durationFactor },
+  });
   const { data: plan, error: planError } = await supabase.rpc("create_draft_plan", {
     p_user_id: user.id,
     p_plan_date: planDate,
@@ -108,6 +114,7 @@ export async function confirmAIProposal(proposal: PlanningProposal, conversation
   const timeZone = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value || DEFAULT_TIMEZONE;
   let planDate: string;
   try { new Intl.DateTimeFormat("en-US", { timeZone }); planDate = getTodayISODate(timeZone); } catch { throw new Error("Invalid timezone detected. Please refresh and try again."); }
+  const nowMinutes = timeMinutes(getLocalTimeHHMM(timeZone));
 
   const taskIds = items.map((item) => item.task_id).filter((id): id is string => Boolean(id));
   if (taskIds.length !== items.length || new Set(taskIds).size !== taskIds.length) throw new Error("Each scheduled item must reference a unique task.");
@@ -184,6 +191,7 @@ export async function confirmAIProposal(proposal: PlanningProposal, conversation
     const start = timeMinutes(normalizeProposalTime(item.start_time));
     const end = timeMinutes(normalizeProposalTime(item.end_time));
     if (start < 0 || end <= start) throw new Error(`Invalid schedule time for "${title}".`);
+    if (start < nowMinutes) throw new Error(`"${title}" starts at ${normalizeProposalTime(item.start_time)}, which has already passed. Ask for a new proposal.`);
     if (item.estimated_minutes !== undefined && item.estimated_minutes !== end - start) throw new Error(`The scheduled duration for "${title}" does not match its estimated minutes.`);
     if (!workingRules.some((rule) => start >= timeMinutes(rule.start_time) && end <= timeMinutes(rule.end_time))) throw new Error(`"${title}" falls outside your configured working hours.`);
     if (reservationRules.some((rule) => intervalsOverlap(start, end, timeMinutes(rule.start_time), timeMinutes(rule.end_time)))) throw new Error(`"${title}" overlaps a reserved availability window.`);
@@ -334,6 +342,102 @@ export async function confirmPlan(formData: FormData) {
     throw new Error(`AI Planner published successfully, but the plan status could not be updated: ${completionError.message}`);
   }
   revalidatePath("/today");
+}
+
+/**
+ * Day 9 adaptive replanning. Rebuilds the rest of today with the
+ * deterministic engine (see buildReplan) and saves it as a draft; the
+ * existing Confirm plan flow is the only path to Google Calendar. Expected
+ * failures are returned as { error } so ActionForm can show them inline.
+ */
+export async function replanToday(formData: FormData) {
+  const { supabase, user } = await requireUser();
+  const mode = String(formData.get("mode") ?? "");
+  if (!isReplanMode(mode)) return { error: "Choose a valid replanning option." };
+
+  const cookieStore = await cookies();
+  const timeZone = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value;
+  if (!timeZone) return { error: "Timezone could not be determined. Please refresh the page and try again." };
+  try { new Intl.DateTimeFormat("en-US", { timeZone }); } catch { return { error: "Invalid timezone detected. Please refresh the page and try again." }; }
+  const now = new Date();
+  const planDate = getTodayISODate(timeZone, now);
+  const nowTime = getLocalTimeHHMM(timeZone, now);
+  const weekday = new Date(`${planDate}T00:00:00Z`).getUTCDay();
+
+  let freeWindow: { startTime: string; endTime: string } | null = null;
+  if (mode === "free_time") {
+    const startTime = String(formData.get("start_time") ?? "").trim();
+    const endTime = String(formData.get("end_time") ?? "").trim();
+    if (!validTime(startTime) || !validTime(endTime) || endTime <= startTime) return { error: "Choose a valid free time window: the end must be after the start." };
+    if (endTime <= nowTime) return { error: "That free time window has already passed." };
+    freeWindow = { startTime, endTime };
+  }
+
+  const { data: plan, error: planError } = await supabase
+    .from("daily_plans")
+    .select("id,status,version")
+    .eq("user_id", user.id)
+    .eq("plan_date", planDate)
+    .in("status", ["draft", "publishing", "publication_failed", "confirmed"])
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle<Pick<DailyPlan, "id" | "status" | "version">>();
+  if (planError) return { error: `Could not load today's plan: ${planError.message}` };
+  if (!plan) return { error: "Generate today's plan before replanning." };
+  if (plan.status === "publishing" || plan.status === "publication_failed") return { error: "Finish or retry publishing today's plan before replanning." };
+
+  const [blocksResult, unscheduledResult, tasksResult, rulesResult, commitmentsResult] = await Promise.all([
+    supabase.from("plan_blocks").select("*").eq("daily_plan_id", plan.id).eq("user_id", user.id).returns<PlanBlock[]>(),
+    supabase.from("plan_unscheduled_tasks").select("task_id,reason").eq("daily_plan_id", plan.id).eq("user_id", user.id).returns<Array<{ task_id: string; reason: string }>>(),
+    supabase.from("tasks").select("*").eq("user_id", user.id).returns<Task[]>(),
+    supabase.from("availability_rules").select("weekday,kind,start_time,end_time").eq("user_id", user.id).eq("weekday", weekday),
+    supabase.from("fixed_commitments").select("id,commitment_date,title,start_time,end_time").eq("user_id", user.id).eq("commitment_date", planDate),
+  ]);
+  const loadError = blocksResult.error ?? unscheduledResult.error ?? tasksResult.error ?? rulesResult.error ?? commitmentsResult.error;
+  if (loadError) return { error: `Could not load scheduling data: ${loadError.message}` };
+
+  const tokenResult = await getValidAccessToken(user.id);
+  let calendarEvents: { googleEventId: string; title: string; startTime: string; endTime: string }[] = [];
+  if ("error" in tokenResult) {
+    if (tokenResult.error === "reconnect_required") return { error: "Google Calendar credentials are no longer valid. Please reconnect Google Calendar in Settings." };
+    if (tokenResult.error === "calendar_sync_failed") return { error: "Could not sync Google Calendar events. Please try again." };
+  } else {
+    try { calendarEvents = await fetchCalendarEvents(tokenResult.token, planDate, timeZone); } catch { return { error: "Could not sync Google Calendar events. Please try again." }; }
+  }
+
+  const personalization = await loadPersonalization(supabase, timeZone, now);
+  const tasks: SchedulerTask[] = (tasksResult.data ?? []).map((task) => ({ id: task.id, title: task.title, status: task.status, priority: task.priority, urgency: task.urgency, impact: task.impact, mustDo: task.must_do, dueDate: task.due_date, estimatedMinutes: task.estimated_minutes, energyLevel: task.energy_level, createdAt: task.created_at }));
+  const currentBlocks: ReplanBlock[] = (blocksResult.data ?? []).map((block) => ({ taskId: block.task_id, kind: block.kind, title: block.title, startTime: block.start_time, endTime: block.end_time, isManual: block.is_manual }));
+
+  const result = buildReplan({
+    mode, date: planDate, weekday, nowTime,
+    availabilityRules: (rulesResult.data ?? []).map((rule) => ({ weekday: rule.weekday, kind: rule.kind, startTime: rule.start_time, endTime: rule.end_time })),
+    fixedCommitments: (commitmentsResult.data ?? []).map((c) => ({ id: c.id, date: c.commitment_date, title: c.title, startTime: c.start_time, endTime: c.end_time })),
+    calendarEvents,
+    currentBlocks,
+    currentUnscheduled: (unscheduledResult.data ?? []).map((item) => ({ taskId: item.task_id, reason: item.reason })),
+    tasks,
+    preferences: {
+      bufferPercent: personalization.preferences.bufferPercent,
+      lowEnergyMaxBlockMinutes: personalization.preferences.lowEnergyMaxBlockMinutes,
+      durationFactor: personalization.durationFactor,
+    },
+    freeWindow,
+  });
+  if (!result.changed) return { message: result.summary };
+
+  const { error: draftError } = await supabase.rpc("create_draft_plan", {
+    p_user_id: user.id,
+    p_plan_date: planDate,
+    p_buffer_minutes: result.bufferMinutes,
+    p_generated_at: now.toISOString(),
+    p_blocks: result.blocks.map((b) => ({ task_id: b.taskId, kind: b.kind, title: b.title, start_time: b.startTime, end_time: b.endTime, sort_order: b.sortOrder, is_manual: b.isManual })),
+    p_unscheduled: result.unscheduled.map((item) => ({ task_id: item.taskId, reason: item.reason })),
+  }).single<DailyPlan>();
+  if (draftError) return { error: `Could not save the replanned draft: ${draftError.message}` };
+
+  revalidatePath("/today");
+  return { message: `${result.summary} Review the new draft, then use Confirm plan to update Google Calendar.` };
 }
 
 export async function removePlanBlock(formData: FormData) {

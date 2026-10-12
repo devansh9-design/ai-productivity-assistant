@@ -2,6 +2,7 @@ import {
   generateSchedule,
   type AvailabilityRuleInput,
   type FixedCommitmentInput,
+  type SchedulePolicy,
   type SchedulerTask,
   type UnscheduledTask,
 } from "@/lib/scheduler/engine";
@@ -31,6 +32,7 @@ export interface PlanDraftInput {
   tasks: SchedulerTask[];
   existingManualBlocks?: ExistingManualBlock[];
   calendarEvents?: CalendarEventInput[];
+  policy?: SchedulePolicy;
 }
 
 export interface MergedBlock {
@@ -83,6 +85,7 @@ export function buildDraftPlan(input: PlanDraftInput): PlanDraftResult {
     tasks,
     existingManualBlocks = [],
     calendarEvents = [],
+    policy,
   } = input;
 
   // Convert calendar events to fixed commitments so the engine blocks out their time
@@ -103,6 +106,7 @@ export function buildDraftPlan(input: PlanDraftInput): PlanDraftResult {
     availabilityRules,
     fixedCommitments: allFixedCommitments,
     tasks: [],
+    policy,
   });
 
   const availableMinutes = baseSchedule.availableMinutes;
@@ -218,6 +222,7 @@ export function buildDraftPlan(input: PlanDraftInput): PlanDraftResult {
     availabilityRules,
     fixedCommitments: [...allFixedCommitments, ...manualAsFixed],
     tasks: engineTasks,
+    policy,
   });
 
   // Combine unscheduled list (invalid manual blocks + engine unscheduled)

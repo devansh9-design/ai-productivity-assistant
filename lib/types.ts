@@ -6,7 +6,7 @@ export type TaskPriority = "low" | "medium" | "high" | "urgent";
 
 export type EnergyLevel = "low" | "medium" | "high";
 
-export type AvailabilityRuleKind = "working" | "high_focus" | "sleep" | "meal" | "travel" | "break";
+export type AvailabilityRuleKind = "working" | "high_focus" | "sleep" | "meal" | "travel" | "break" | "exercise";
 export type PlanBlockKind = "task" | "buffer" | "calendar";
 export type PlanStatus = "draft" | "publishing" | "publication_failed" | "confirmed" | "superseded" | "completed";
 
@@ -150,6 +150,15 @@ export interface PlanBlock {
   end_time: string;
   sort_order: number;
   is_manual: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlanningPreferences {
+  user_id: string;
+  buffer_percent: number;
+  low_energy_max_block_minutes: number;
+  adapt_to_actual_durations: boolean;
   created_at: string;
   updated_at: string;
 }
