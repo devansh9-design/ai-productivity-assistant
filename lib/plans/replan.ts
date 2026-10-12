@@ -1,4 +1,5 @@
 import {
+  effectiveDuration,
   generateSchedule,
   NO_TIME_REASON,
   type AvailabilityRuleInput,
@@ -210,6 +211,15 @@ export function buildReplan(input: ReplanInput): ReplanResult {
   const parts = lowEnergy
     ? [`Rebuilt the rest of today for low energy: ${plural(placed.size, "session")}, each at most ${preferences.lowEnergyMaxBlockMinutes} minutes.`]
     : [`Rescheduled ${placed.size} of ${plural(candidates.length, "remaining task")} from ${nowLabel}, using buffer time to catch up.`];
+  if (lowEnergy) {
+    const shortened = engine.blocks.filter((item) => {
+      const planned = item.taskId ? taskById.get(item.taskId)?.estimatedMinutes : null;
+      return item.kind === "task" && planned && toMinutes(item.endTime) - toMinutes(item.startTime) < effectiveDuration(planned, { durationFactor: preferences.durationFactor });
+    });
+    if (shortened.length) {
+      parts.push(`Shortened ${shortened.map((item) => `"${item.title}"`).join(", ")} to ${preferences.lowEnergyMaxBlockMinutes} minutes; the rest of that work stays open for later.`);
+    }
+  }
   if (missed.length) parts.push(`This includes ${plural(missed.length, "earlier block")} whose task was not started yet.`);
   if (deferred.length) parts.push(`${plural(deferred.length, "task")} moved to Not scheduled.`);
   if (finishedCount) parts.push(`Removed ${plural(finishedCount, "block")} for tasks that are already done.`);

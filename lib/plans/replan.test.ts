@@ -103,6 +103,11 @@ describe("buildReplan: behind_schedule", () => {
     const session = taskBlock(tired, "a")!;
     expect(minutes(session.startTime)).toBeGreaterThanOrEqual(minutes("12:50"));
     expect(minutes(session.endTime) - minutes(session.startTime)).toBe(45);
+    expect(tired.summary).toContain('Shortened "Task a" to 45 minutes; the rest of that work stays open for later.');
+
+    // Energy is separate from priority: an unset energy level is not deferred.
+    const unset = current("low_energy", null);
+    expect(taskBlock(unset, "a")).toBeDefined();
 
     const tiredHard = current("low_energy", "high");
     expect(taskBlock(tiredHard, "a")).toBeUndefined();

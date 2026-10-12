@@ -36,6 +36,7 @@ function TaskRow({ task, activeSession }: { task: Task; activeSession: TaskSessi
           <p className="mt-1 text-xs text-slate-500">
             {task.estimated_minutes ? `${task.estimated_minutes} min estimated` : "No estimate"}
             {task.actual_minutes ? ` · ${task.actual_minutes} min actual` : ""}
+            {task.energy_level ? ` · ${task.energy_level} energy` : " · energy not set"}
           </p>
           {task.status_reason && (task.status === "skipped" || task.status === "deferred") && (
             <p className="mt-1 text-xs text-amber-700">
