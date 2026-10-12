@@ -10,7 +10,7 @@ export function ReplanPanel({ lowEnergyMaxBlockMinutes }: { lowEnergyMaxBlockMin
     <section aria-labelledby="replan-title" className="mt-4 rounded-2xl border border-slate-200 bg-white p-5">
       <h2 id="replan-title" className="text-lg font-semibold text-slate-900">Replan the rest of today</h2>
       <p className="mt-1 text-sm text-slate-600">
-        Builds a new draft from the current time. Blocks that have already started stay as they are, and Google Calendar is unchanged until you confirm the draft.
+        Builds a new draft from the current time. Blocks for tasks you have started or finished stay as they are, and Google Calendar is unchanged until you confirm the draft.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">

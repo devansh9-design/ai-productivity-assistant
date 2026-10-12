@@ -81,8 +81,42 @@ describe("buildReplan: behind_schedule", () => {
     expect(result.changed).toBe(true);
     expect(result.blocks.filter((item) => item.taskId === "a")).toHaveLength(1);
     expect(taskBlock(result, "a")).toMatchObject({ startTime: "12:05:00", endTime: "13:05:00" });
-    expect(result.summary).toContain("1 missed block");
+    expect(result.summary).toContain("1 earlier block whose task was not started yet");
     expectNoOverlaps(result.blocks);
+  });
+
+  it("moves the current block when its time has begun but its task has not", () => {
+    // Generated at 12:43; at 12:50 the 12:43-13:43 block is running but the task is still todo.
+    const current = (mode: ReplanInput["mode"], energyLevel: SchedulerTask["energyLevel"]) => buildReplan(baseInput({
+      mode,
+      nowTime: "12:50",
+      availabilityRules: [{ weekday: 1, kind: "working", startTime: "09:00", endTime: "22:00" }],
+      currentBlocks: [block("a", "12:43", "13:43"), block(null, "21:10", "22:00", "buffer")],
+      tasks: [task("a", { energyLevel })],
+    }));
+
+    const behind = current("behind_schedule", "medium");
+    expect(behind.changed).toBe(true);
+    expect(taskBlock(behind, "a")).toMatchObject({ startTime: "12:50:00", endTime: "13:50:00" });
+
+    const tired = current("low_energy", "medium");
+    const session = taskBlock(tired, "a")!;
+    expect(minutes(session.startTime)).toBeGreaterThanOrEqual(minutes("12:50"));
+    expect(minutes(session.endTime) - minutes(session.startTime)).toBe(45);
+
+    const tiredHard = current("low_energy", "high");
+    expect(taskBlock(tiredHard, "a")).toBeUndefined();
+    expect(tiredHard.unscheduled).toContainEqual({ taskId: "a", reason: LOW_ENERGY_DEFERRAL_REASON });
+  });
+
+  it("keeps the current block once its task is in progress", () => {
+    const result = buildReplan(baseInput({
+      nowTime: "12:50",
+      currentBlocks: [block("a", "12:43", "13:43"), block("b", "14:00", "15:00")],
+      tasks: [task("a", { status: "in_progress" }), task("b")],
+    }));
+    expect(taskBlock(result, "a")).toMatchObject({ startTime: "12:43:00", endTime: "13:43:00" });
+    expect(minutes(taskBlock(result, "b")!.startTime)).toBeGreaterThanOrEqual(minutes("13:43"));
   });
 
   it("keeps a past block whose task was started or finished", () => {

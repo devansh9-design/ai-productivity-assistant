@@ -112,9 +112,9 @@ function countMustDos(blocks: ReplanBlock[], taskById: Map<string, SchedulerTask
 }
 
 /**
- * Pure mid-day replanning. Blocks that have already started stay exactly as
- * they are, except missed blocks (time passed, task never started), which
- * are moved forward. Only the rest of the day changes, and the deterministic engine
+ * Pure mid-day replanning. Blocks for tasks you have started or finished stay
+ * exactly as they are; a block whose time has begun while its task is still
+ * todo is moved forward. Only the rest of the day changes, and the deterministic engine
  * (never the AI) decides what fits. The caller saves the result as a draft,
  * so nothing reaches Google Calendar until the user confirms it.
  *
@@ -171,12 +171,13 @@ export function buildReplan(input: ReplanInput): ReplanResult {
     return finish(input, planBlocks, engine, mergeUnscheduled(input.currentUnscheduled, [], placed), summary, placed.size > 0);
   }
 
-  // A missed block is one whose time has passed while its task was never
-  // started. It is moved forward like upcoming work rather than kept.
-  const isMissed = (block: ReplanBlock) =>
-    block.kind === "task" && Boolean(block.taskId) && toMinutes(block.endTime) <= now && taskById.get(block.taskId as string)?.status === "todo";
-  const missed = planBlocks.filter(isMissed);
-  const started = planBlocks.filter((block) => toMinutes(block.startTime) < now && !isMissed(block));
+  // A block whose start time has passed (whether it is over or still running)
+  // while its task is still todo was never actually started, so it moves
+  // forward like upcoming work. Blocks for started or finished tasks stay.
+  const isUnstarted = (block: ReplanBlock) =>
+    block.kind === "task" && Boolean(block.taskId) && toMinutes(block.startTime) < now && taskById.get(block.taskId as string)?.status === "todo";
+  const missed = planBlocks.filter(isUnstarted);
+  const started = planBlocks.filter((block) => toMinutes(block.startTime) < now && !isUnstarted(block));
   const upcoming = planBlocks.filter((block) => toMinutes(block.startTime) >= now);
 
   const replanTaskIds = [...new Set([...missed, ...upcoming].map((block) => block.taskId).filter((id): id is string => Boolean(id)))];
@@ -209,7 +210,7 @@ export function buildReplan(input: ReplanInput): ReplanResult {
   const parts = lowEnergy
     ? [`Rebuilt the rest of today for low energy: ${plural(placed.size, "session")}, each at most ${preferences.lowEnergyMaxBlockMinutes} minutes.`]
     : [`Rescheduled ${placed.size} of ${plural(candidates.length, "remaining task")} from ${nowLabel}, using buffer time to catch up.`];
-  if (missed.length) parts.push(`This includes ${plural(missed.length, "missed block")} from earlier today.`);
+  if (missed.length) parts.push(`This includes ${plural(missed.length, "earlier block")} whose task was not started yet.`);
   if (deferred.length) parts.push(`${plural(deferred.length, "task")} moved to Not scheduled.`);
   if (finishedCount) parts.push(`Removed ${plural(finishedCount, "block")} for tasks that are already done.`);
 
