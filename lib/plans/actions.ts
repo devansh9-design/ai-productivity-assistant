@@ -84,7 +84,8 @@ export async function generateDraftPlan() {
   const personalization = await loadPersonalization(supabase, timeZone);
   const planResult = buildDraftPlan({
     date: planDate, weekday, availabilityRules, fixedCommitments, tasks: engineTasks, existingManualBlocks: manualBlocks, calendarEvents,
-    policy: { bufferPercent: personalization.preferences.bufferPercent, durationFactor: personalization.durationFactor },
+    // Generating mid-day must not place new work in time that has already passed.
+    policy: { bufferPercent: personalization.preferences.bufferPercent, durationFactor: personalization.durationFactor, earliestStartTime: getLocalTimeHHMM(timeZone) },
   });
   const { data: plan, error: planError } = await supabase.rpc("create_draft_plan", {
     p_user_id: user.id,

@@ -70,10 +70,40 @@ describe("buildReplan: behind_schedule", () => {
     expect(taskBlock(result, "extra")).toBeUndefined();
   });
 
-  it("reports no change when nothing starts after now", () => {
-    const result = buildReplan(baseInput({ nowTime: "16:30" }));
-    expect(result.changed).toBe(false);
-    expect(result.summary).toContain("nothing to replan");
+  it("moves a missed block forward when its time passed and the task was never started", () => {
+    // A plan generated in the morning, opened at noon: the 09:00 block was missed.
+    const result = buildReplan(baseInput({
+      nowTime: "12:03",
+      availabilityRules: [{ weekday: 1, kind: "working", startTime: "09:00", endTime: "22:00" }],
+      currentBlocks: [block("a", "09:00", "10:00"), block(null, "20:48", "22:00", "buffer")],
+      tasks: [task("a")],
+    }));
+    expect(result.changed).toBe(true);
+    expect(result.blocks.filter((item) => item.taskId === "a")).toHaveLength(1);
+    expect(taskBlock(result, "a")).toMatchObject({ startTime: "12:05:00", endTime: "13:05:00" });
+    expect(result.summary).toContain("1 missed block");
+    expectNoOverlaps(result.blocks);
+  });
+
+  it("keeps a past block whose task was started or finished", () => {
+    const result = buildReplan(baseInput({
+      nowTime: "12:00",
+      tasks: [task("a", { status: "completed" }), task("b", { status: "in_progress" }), task("c")],
+    }));
+    expect(taskBlock(result, "a")).toMatchObject({ startTime: "09:00:00" });
+    expect(taskBlock(result, "b")).toMatchObject({ startTime: "10:30:00" });
+    expect(minutes(taskBlock(result, "c")!.startTime)).toBeGreaterThanOrEqual(minutes("12:00"));
+  });
+
+  it("reports no change when no task remains, leaving the plan and its buffer intact", () => {
+    const done = { tasks: [task("a", { status: "completed" }), task("b", { status: "completed" }), task("c", { status: "skipped" })] };
+    const late = buildReplan(baseInput({ nowTime: "16:30", ...done }));
+    expect(late.changed).toBe(false);
+    expect(late.summary).toContain("nothing to replan");
+
+    const onlyBuffer = buildReplan(baseInput({ nowTime: "12:00", currentBlocks: [block("a", "09:00", "10:00"), block(null, "16:00", "17:00", "buffer")], tasks: [task("a", { status: "completed" })] }));
+    expect(onlyBuffer.changed).toBe(false);
+    expect(onlyBuffer.blocks.some((item) => item.kind === "buffer")).toBe(true);
   });
 
   it("keeps re-placed work clear of calendar events and fixed commitments", () => {

@@ -113,7 +113,8 @@ function countMustDos(blocks: ReplanBlock[], taskById: Map<string, SchedulerTask
 
 /**
  * Pure mid-day replanning. Blocks that have already started stay exactly as
- * they are; only the rest of the day changes, and the deterministic engine
+ * they are, except missed blocks (time passed, task never started), which
+ * are moved forward. Only the rest of the day changes, and the deterministic engine
  * (never the AI) decides what fits. The caller saves the result as a draft,
  * so nothing reaches Google Calendar until the user confirms it.
  *
@@ -170,13 +171,18 @@ export function buildReplan(input: ReplanInput): ReplanResult {
     return finish(input, planBlocks, engine, mergeUnscheduled(input.currentUnscheduled, [], placed), summary, placed.size > 0);
   }
 
-  const started = planBlocks.filter((block) => toMinutes(block.startTime) < now);
+  // A missed block is one whose time has passed while its task was never
+  // started. It is moved forward like upcoming work rather than kept.
+  const isMissed = (block: ReplanBlock) =>
+    block.kind === "task" && Boolean(block.taskId) && toMinutes(block.endTime) <= now && taskById.get(block.taskId as string)?.status === "todo";
+  const missed = planBlocks.filter(isMissed);
+  const started = planBlocks.filter((block) => toMinutes(block.startTime) < now && !isMissed(block));
   const upcoming = planBlocks.filter((block) => toMinutes(block.startTime) >= now);
-  if (!upcoming.length) return noChange(`Nothing on the plan starts after ${nowLabel}, so there is nothing to replan.`);
 
-  const upcomingTaskIds = [...new Set(upcoming.map((block) => block.taskId).filter((id): id is string => Boolean(id)))];
-  const candidates = upcomingTaskIds.map((id) => taskById.get(id)).filter((task): task is SchedulerTask => Boolean(task && OPEN_STATUSES.has(task.status)));
-  const finishedCount = upcomingTaskIds.length - candidates.length;
+  const replanTaskIds = [...new Set([...missed, ...upcoming].map((block) => block.taskId).filter((id): id is string => Boolean(id)))];
+  const candidates = replanTaskIds.map((id) => taskById.get(id)).filter((task): task is SchedulerTask => Boolean(task && OPEN_STATUSES.has(task.status)));
+  const finishedCount = replanTaskIds.length - candidates.length;
+  if (!candidates.length && !finishedCount) return noChange(`No remaining tasks on the plan after ${nowLabel}, so there is nothing to replan.`);
   const lowEnergy = mode === "low_energy";
   const policy: SchedulePolicy = {
     earliestStartTime: nowLabel,
@@ -203,6 +209,7 @@ export function buildReplan(input: ReplanInput): ReplanResult {
   const parts = lowEnergy
     ? [`Rebuilt the rest of today for low energy: ${plural(placed.size, "session")}, each at most ${preferences.lowEnergyMaxBlockMinutes} minutes.`]
     : [`Rescheduled ${placed.size} of ${plural(candidates.length, "remaining task")} from ${nowLabel}, using buffer time to catch up.`];
+  if (missed.length) parts.push(`This includes ${plural(missed.length, "missed block")} from earlier today.`);
   if (deferred.length) parts.push(`${plural(deferred.length, "task")} moved to Not scheduled.`);
   if (finishedCount) parts.push(`Removed ${plural(finishedCount, "block")} for tasks that are already done.`);
 
