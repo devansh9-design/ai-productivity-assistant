@@ -9,7 +9,7 @@ import { generateSchedule, type AvailabilityRuleInput, type FixedCommitmentInput
 import { isValidISODate } from "@/lib/tasks/date-validation";
 import type { AvailabilityRuleKind, DailyPlan, Task } from "@/lib/types";
 
-const RULE_KINDS: AvailabilityRuleKind[] = ["working", "high_focus", "sleep", "meal", "travel", "break"];
+const RULE_KINDS: AvailabilityRuleKind[] = ["working", "high_focus", "sleep", "meal", "travel", "break", "exercise"];
 
 function requiredText(formData: FormData, key: string, label: string) {
   const value = String(formData.get(key) ?? "").trim();

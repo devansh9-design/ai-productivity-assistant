@@ -1,12 +1,13 @@
-name: Day 8 verification
+name: App verification
 
 on:
   push:
     branches:
-      - day-8
+      - main
+      - "day-*"
   pull_request:
     branches:
-      - day-8
+      - main
 
 jobs:
   verify:

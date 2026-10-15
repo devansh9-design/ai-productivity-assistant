@@ -28,20 +28,24 @@ interface ActionFormProps {
  */
 export function ActionForm({ action, children, className, resetOnSuccess = true }: ActionFormProps) {
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setNotice(null);
     const form = event.currentTarget;
     const formData = new FormData(form);
 
     startTransition(async () => {
       try {
-        const result = await action(formData) as { error?: string } | undefined;
+        const result = await action(formData) as { error?: string; message?: string } | undefined;
         if (result && typeof result === "object" && "error" in result && typeof result.error === "string") {
           setError(result.error);
         } else {
+          // An action may return { message } to confirm what it did.
+          if (result && typeof result === "object" && typeof result.message === "string") setNotice(result.message);
           if (resetOnSuccess) form.reset();
         }
       } catch (submitError) {
@@ -57,6 +61,11 @@ export function ActionForm({ action, children, className, resetOnSuccess = true 
         {error && (
           <p role="alert" className="mt-3 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {error}
+          </p>
+        )}
+        {notice && (
+          <p role="status" className="mt-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            {notice}
           </p>
         )}
       </form>

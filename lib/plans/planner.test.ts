@@ -294,3 +294,17 @@ describe("buildDraftPlan - Calendar Integration", () => {
     expect(result.bufferMinutes).toBe(60);
   });
 });
+
+describe("buildDraftPlan policy (Day 9)", () => {
+  it("does not place work before the current time when generating mid-day", () => {
+    const result = buildDraftPlan(baseInput({ policy: { earliestStartTime: "12:00" } }));
+    const placed = result.blocks.filter((block) => block.kind !== "calendar");
+    expect(placed.length).toBeGreaterThan(0);
+    expect(placed.every((block) => block.startTime >= "12:00:00")).toBe(true);
+  });
+
+  it("applies the configured buffer percentage", () => {
+    expect(buildDraftPlan(baseInput()).bufferMinutes).toBe(60);
+    expect(buildDraftPlan(baseInput({ policy: { bufferPercent: 10 } })).bufferMinutes).toBe(30);
+  });
+});

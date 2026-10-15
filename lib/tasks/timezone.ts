@@ -31,6 +31,25 @@ export function getTodayISODate(timeZone: string, now: Date = new Date()): strin
 }
 
 /**
+ * Returns the current wall-clock time as HH:mm (24-hour) in the given IANA
+ * timezone. Falls back to UTC for an unrecognized timezone, like
+ * getTodayISODate.
+ */
+export function getLocalTimeHHMM(timeZone: string, now: Date = new Date()): string {
+  const format = (zone: string) => {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now);
+    const hour = parts.find((part) => part.type === "hour")?.value ?? "00";
+    const minute = parts.find((part) => part.type === "minute")?.value ?? "00";
+    return `${hour === "24" ? "00" : hour}:${minute}`;
+  };
+  try {
+    return format(timeZone);
+  } catch {
+    return format("UTC");
+  }
+}
+
+/**
  * Adds `days` calendar days to a YYYY-MM-DD string using UTC arithmetic
  * (never the server's local timezone), returning a YYYY-MM-DD string.
  */

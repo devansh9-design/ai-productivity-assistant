@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSchedule, scoreTask, type ScheduleInput, type SchedulerTask } from "@/lib/scheduler/engine";
+import { effectiveDuration, generateSchedule, LOW_ENERGY_DEFERRAL_REASON, scoreTask, type ScheduleInput, type SchedulerTask } from "@/lib/scheduler/engine";
 
 const baseTask = (overrides: Partial<SchedulerTask> = {}): SchedulerTask => ({
   id: "task-1", title: "Task", status: "todo", priority: "medium", urgency: 3, impact: 3, mustDo: false,
@@ -119,5 +119,68 @@ describe("generateSchedule", () => {
       tasks: [baseTask({ energyLevel: "high", estimatedMinutes: 60 })],
     }));
     expect(result.blocks.find((block) => block.kind === "task")).toMatchObject({ startTime: "10:00:00", endTime: "11:00:00" });
+  });
+});
+
+describe("generateSchedule policy (Day 9)", () => {
+  const taskBlocks = (input: ScheduleInput) => generateSchedule(input).blocks.filter((block) => block.kind === "task");
+  const bufferTotal = (input: ScheduleInput) => generateSchedule(input).blocks
+    .filter((block) => block.kind === "buffer")
+    .reduce((total, block) => total + (Number(block.endTime.slice(0, 2)) * 60 + Number(block.endTime.slice(3, 5))) - (Number(block.startTime.slice(0, 2)) * 60 + Number(block.startTime.slice(3, 5))), 0);
+
+  it("produces the exact Day 4 result when no policy is given", () => {
+    expect(generateSchedule(baseInput({ policy: {} }))).toEqual(generateSchedule(baseInput()));
+  });
+
+  it("reserves the configured buffer percentage", () => {
+    // 09:00-14:00 is 300 free minutes.
+    expect(bufferTotal(baseInput())).toBe(60);
+    expect(bufferTotal(baseInput({ policy: { bufferPercent: 30 } }))).toBe(90);
+    expect(bufferTotal(baseInput({ policy: { bufferPercent: 0 } }))).toBe(0);
+  });
+
+  it("scales estimates by the learned duration factor, rounded up to 5 minutes", () => {
+    expect(effectiveDuration(60, { durationFactor: 1.2 })).toBe(75);
+    expect(effectiveDuration(60, {})).toBe(60);
+    const [block] = taskBlocks(baseInput({ policy: { durationFactor: 1.5 } }));
+    expect(block).toMatchObject({ startTime: "09:00:00", endTime: "10:30:00" });
+  });
+
+  it("caps a long task at maxBlockMinutes as a partial session", () => {
+    const [block] = taskBlocks(baseInput({ tasks: [baseTask({ estimatedMinutes: 120 })], policy: { maxBlockMinutes: 45 } }));
+    expect(block).toMatchObject({ startTime: "09:00:00", endTime: "09:45:00" });
+  });
+
+  it("never places work before earliestStartTime", () => {
+    const blocks = generateSchedule(baseInput({ policy: { earliestStartTime: "11:15" } })).blocks;
+    expect(blocks.length).toBeGreaterThan(0);
+    expect(blocks.every((block) => block.startTime >= "11:15:00")).toBe(true);
+  });
+
+  it("defers high-energy work and places lighter work first when energy is low", () => {
+    const result = generateSchedule(baseInput({
+      tasks: [
+        baseTask({ id: "hard", energyLevel: "high", urgency: 5 }),
+        baseTask({ id: "medium", energyLevel: "medium", urgency: 4 }),
+        baseTask({ id: "light", energyLevel: "low", urgency: 1 }),
+      ],
+      policy: { lowEnergy: true },
+    }));
+    expect(result.unscheduled).toEqual([{ taskId: "hard", reason: LOW_ENERGY_DEFERRAL_REASON }]);
+    expect(result.blocks.filter((block) => block.kind === "task").map((block) => block.taskId)).toEqual(["light", "medium"]);
+  });
+
+  it("schedules in-progress work only when the policy allows it", () => {
+    const tasks = [baseTask({ id: "doing", status: "in_progress" })];
+    expect(taskBlocks(baseInput({ tasks }))).toHaveLength(0);
+    expect(taskBlocks(baseInput({ tasks, policy: { eligibleStatuses: ["todo", "in_progress"] } })).map((block) => block.taskId)).toEqual(["doing"]);
+  });
+
+  it("counts must-do tasks already on the plan against the limit of three", () => {
+    const tasks = [1, 2].map((n) => baseTask({ id: `must-${n}`, mustDo: true, estimatedMinutes: 30 }));
+    const result = generateSchedule(baseInput({ tasks, policy: { mustDoAlreadyScheduled: 2 } }));
+    expect(result.blocks.filter((block) => block.kind === "task")).toHaveLength(1);
+    expect(result.unscheduled).toHaveLength(1);
+    expect(result.unscheduled[0].reason).toContain("must_do_limit");
   });
 });

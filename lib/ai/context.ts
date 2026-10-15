@@ -2,13 +2,17 @@ import "server-only";
 
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { TIMEZONE_COOKIE_NAME, DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
+import { TIMEZONE_COOKIE_NAME, DEFAULT_TIMEZONE, getLocalTimeHHMM, getTodayISODate } from "@/lib/tasks/timezone";
 import { getValidAccessToken } from "@/lib/google/oauth";
 import { fetchCalendarEvents } from "@/lib/google/calendar";
+import { loadPersonalization } from "@/lib/preferences/load";
+import { buildPreferenceSummary } from "@/lib/preferences/preferences";
 
 export type AIPlanningContext = {
   date: string;
   timezone: string;
+  current_local_time: string;
+  preferences_summary: string;
   preferences: { email: string | null };
   availability: Array<{ weekday: number; kind: string; start_time: string; end_time: string }>;
   fixed_commitments: Array<{ title: string; start_time: string; end_time: string }>;
@@ -48,7 +52,9 @@ export async function getAIPlanningContext(): Promise<AIPlanningContext> {
   const timezone = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value || DEFAULT_TIMEZONE;
   try { new Intl.DateTimeFormat("en-US", { timeZone: timezone }); }
   catch { throw new Error("Invalid timezone"); }
-  const date = getTodayISODate(timezone);
+  const now = new Date();
+  const date = getTodayISODate(timezone, now);
+  const currentLocalTime = getLocalTimeHHMM(timezone, now);
 
   const [profileResult, tasksResult, goalsResult, milestonesResult, planResult, checkinsResult, journalsResult, availabilityResult, commitmentsResult] =
     await Promise.all([
@@ -113,12 +119,23 @@ export async function getAIPlanningContext(): Promise<AIPlanningContext> {
     } catch { /* Never claim availability when sync failed. */ }
   }
 
+  const personalization = await loadPersonalization(supabase, timezone, now);
+  const preferencesSummary = buildPreferenceSummary({
+    preferences: personalization.preferences,
+    durationFactor: personalization.durationFactor,
+    todayRules: availabilityResult.data ?? [],
+    recentEnergy: (checkinsResult.data ?? []).map((checkin) => checkin.energy_level ?? null),
+    insights: personalization.insights.map((insight) => insight.text),
+  });
+
   const journalsByDate = new Map(
     (journalsResult.data ?? []).map((entry) => [entry.entry_date, entry.reflection]),
   );
 
   return {
     date, timezone,
+    current_local_time: currentLocalTime,
+    preferences_summary: preferencesSummary,
     availability: availabilityResult.data ?? [],
     fixed_commitments: commitmentsResult.data ?? [],
     preferences: { email: profileResult.data?.email ?? null },

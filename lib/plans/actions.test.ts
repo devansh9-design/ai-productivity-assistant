@@ -3,6 +3,8 @@ import { generateDraftPlan } from "@/lib/plans/actions";
 import * as authModule from "@/lib/auth/require-user";
 import * as oauthModule from "@/lib/google/oauth";
 import * as calendarModule from "@/lib/google/calendar";
+import * as personalizationModule from "@/lib/preferences/load";
+import { DEFAULT_PLANNING_PREFERENCES } from "@/lib/preferences/preferences";
 import { cookies } from "next/headers";
 
 // Mock next/headers
@@ -48,6 +50,11 @@ describe("generateDraftPlan - Timezone Validation (Day 6)", () => {
 
     // Mock calendar API to return empty events for testing timezone validation success
     vi.spyOn(calendarModule, "fetchCalendarEvents").mockResolvedValue([]);
+
+    // Personalization has its own tests; these cases only exercise timezone handling.
+    vi.spyOn(personalizationModule, "loadPersonalization").mockResolvedValue({
+      preferences: DEFAULT_PLANNING_PREFERENCES, durationFactor: 1, durationSamples: 0, insights: [],
+    });
   });
 
   afterEach(() => {
