@@ -4,7 +4,8 @@ import { disconnectGoogleCalendar } from "@/lib/google/actions";
 import { updateCalendarSwitches } from "@/lib/integrations/actions";
 import { describeCalendarState, type CalendarIntegrationStatus, type CalendarState } from "@/lib/integrations/calendar";
 
-const STATE_BADGES: Record<CalendarState, { label: string; className: string; dot: string }> = {
+const STATE_BADGES: Record<CalendarState | "unknown", { label: string; className: string; dot: string }> = {
+  unknown: { label: "Status unavailable", className: "bg-rose-100 text-rose-800", dot: "bg-rose-500" },
   connected: { label: "Connected", className: "bg-emerald-100 text-emerald-800", dot: "bg-emerald-500" },
   paused: { label: "Paused", className: "bg-sky-100 text-sky-800", dot: "bg-sky-500" },
   failing: { label: "Last attempt failed", className: "bg-amber-100 text-amber-900", dot: "bg-amber-500" },
@@ -31,7 +32,9 @@ export function CalendarStatusCard({ connected, status, timeZone, oauthResult, o
   const format = (value: string | null) => value
     ? new Intl.DateTimeFormat("en-GB", { timeZone, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(value))
     : "Never";
-  const state = status ? describeCalendarState(status, connected) : connected ? "connected" : "not_connected";
+  // Without the status row, a connected calendar cannot be called healthy:
+  // planning and publishing stop with an error until it can be read.
+  const state = status ? describeCalendarState(status, connected) : connected ? "unknown" : "not_connected";
   const badge = STATE_BADGES[state];
   // Name the paused switch when only one is off.
   const badgeLabel = state === "paused" && status && status.planningEnabled !== status.publishingEnabled
