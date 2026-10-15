@@ -1,5 +1,7 @@
 import "server-only";
 
+import { GoogleRequestError } from "@/lib/google/errors";
+
 // ---------------------------------------------------------------------------
 // Google Calendar event types
 // ---------------------------------------------------------------------------
@@ -199,8 +201,9 @@ export async function fetchCalendarEvents(
     );
 
     if (!calendarResponse.ok) {
-      throw new Error(
+      throw new GoogleRequestError(
         `Google Calendar list request failed (${calendarResponse.status}): ${await calendarResponse.text()}`,
+        calendarResponse.status,
       );
     }
 
@@ -231,8 +234,9 @@ export async function fetchCalendarEvents(
       );
 
       if (!response.ok) {
-        throw new Error(
+        throw new GoogleRequestError(
           `Google Calendar API request failed for ${calendar.summary ?? calendar.id} (${response.status}): ${await response.text()}`,
+          response.status,
         );
       }
 

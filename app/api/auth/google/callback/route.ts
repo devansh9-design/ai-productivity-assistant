@@ -6,6 +6,7 @@ import {
   exchangeCodeForTokens,
   storeGoogleCredentials,
 } from "@/lib/google/oauth";
+import { clearCalendarReconnect } from "@/lib/integrations/status";
 
 const OAUTH_STATE_COOKIE = "__google_oauth_state";
 
@@ -63,6 +64,7 @@ export async function GET(request: NextRequest) {
       tokens.refresh_token ?? null,
       tokens.expires_in,
     );
+    await clearCalendarReconnect(supabase, user.id);
   } catch (error) {
     console.error(
       "Google OAuth callback failed:",
