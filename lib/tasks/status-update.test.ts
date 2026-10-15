@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveTaskStatusUpdate } from "./status-update";
+import { resolveTaskStatusUpdate, stopsRunningTimer } from "./status-update";
 
 describe("resolveTaskStatusUpdate", () => {
   it("rejects an unknown status", () => {
@@ -69,5 +69,15 @@ describe("resolveTaskStatusUpdate", () => {
   it("accepts zero as a valid actual_minutes value", () => {
     const update = resolveTaskStatusUpdate("completed", null, "0");
     expect(update.actual_minutes).toBe(0);
+  });
+});
+
+describe("stopsRunningTimer", () => {
+  it("stops timers when work ends, and leaves them running otherwise", () => {
+    expect(stopsRunningTimer("completed")).toBe(true);
+    expect(stopsRunningTimer("skipped")).toBe(true);
+    expect(stopsRunningTimer("deferred")).toBe(true);
+    expect(stopsRunningTimer("todo")).toBe(false);
+    expect(stopsRunningTimer("in_progress")).toBe(false);
   });
 });

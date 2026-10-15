@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/require-user";
-import { resolveTaskStatusUpdate } from "@/lib/tasks/status-update";
+import { resolveTaskStatusUpdate, stopsRunningTimer } from "@/lib/tasks/status-update";
 import { buildTaskSchedulingMetadataUpdate } from "@/lib/tasks/scheduling-metadata";
 import type { TaskPriority, EnergyLevel } from "@/lib/types";
 
@@ -70,6 +70,22 @@ export async function updateTaskStatus(formData: FormData) {
     reason,
     actualMinutesRaw === null ? null : String(actualMinutesRaw),
   );
+
+  // Stop running timers first so their time ends when the work ended. If this
+  // fails, the status is left unchanged and the user can simply try again.
+  if (stopsRunningTimer(update.status)) {
+    const { data: openSessions, error: sessionsError } = await supabase
+      .from("task_sessions")
+      .select("id")
+      .eq("task_id", id)
+      .eq("user_id", user.id)
+      .is("ended_at", null);
+    if (sessionsError) throw new Error(sessionsError.message);
+    for (const session of openSessions ?? []) {
+      const { error: stopError } = await supabase.rpc("stop_task_session", { p_task_session_id: session.id });
+      if (stopError) throw new Error(`Could not stop the running timer: ${stopError.message}`);
+    }
+  }
 
   const { error } = await supabase.from("tasks").update(update).eq("id", id).eq("user_id", user.id);
   if (error) throw new Error(error.message);
