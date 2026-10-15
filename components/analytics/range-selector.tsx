@@ -24,10 +24,10 @@ export function RangeSelector({ range, today }: { range: AnalyticsRange; today: 
       </nav>
       <form method="get" action="/analytics" className="mt-4 flex flex-wrap items-end gap-3">
         <label className="text-sm font-medium text-slate-800">From
-          <input type="date" name="from" required max={today} defaultValue={range.from} className="mt-1 block rounded-lg border border-slate-300 px-3 py-1.5 text-slate-900" />
+          <input type="date" name="from" required max={today} defaultValue={range.from} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-slate-900" />
         </label>
         <label className="text-sm font-medium text-slate-800">To
-          <input type="date" name="to" required max={today} defaultValue={range.to} className="mt-1 block rounded-lg border border-slate-300 px-3 py-1.5 text-slate-900" />
+          <input type="date" name="to" required max={today} defaultValue={range.to} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-1.5 text-slate-900" />
         </label>
         <button type="submit" className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-100">
           Apply custom range
