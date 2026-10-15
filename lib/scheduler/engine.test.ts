@@ -184,3 +184,39 @@ describe("generateSchedule policy (Day 9)", () => {
     expect(result.unscheduled[0].reason).toContain("must_do_limit");
   });
 });
+
+describe("weekly priority boost (Day 11)", () => {
+  // 09:00-10:15 is 75 free minutes; the 20% buffer leaves room for one 60-minute task.
+  const oneSlot = (tasks: SchedulerTask[], priorityTaskIds?: string[], extra: ScheduleInput["policy"] = {}) =>
+    generateSchedule(baseInput({
+      availabilityRules: [{ weekday: 1, kind: "working", startTime: "09:00", endTime: "10:15" }],
+      tasks,
+      policy: { ...extra, ...(priorityTaskIds ? { priorityTaskIds } : {}) },
+    }));
+  const placedIds = (result: ReturnType<typeof generateSchedule>) =>
+    result.blocks.filter((block) => block.kind === "task").map((block) => block.taskId);
+
+  it("changes nothing when no priorities are saved", () => {
+    const tasks = [baseTask({ id: "a" }), baseTask({ id: "b" })];
+    expect(oneSlot(tasks, [])).toEqual(oneSlot(tasks));
+    expect(placedIds(oneSlot(tasks))).toEqual(["a"]);
+  });
+
+  it("lets a weekly priority win between otherwise equal tasks", () => {
+    const result = oneSlot([baseTask({ id: "a" }), baseTask({ id: "b" })], ["b"]);
+    expect(placedIds(result)).toEqual(["b"]);
+    expect(result.unscheduled.map((item) => item.taskId)).toEqual(["a"]);
+  });
+
+  it("does not jump overdue work or a higher urgency level", () => {
+    expect(placedIds(oneSlot([baseTask({ id: "late", dueDate: "2026-08-02" }), baseTask({ id: "pri" })], ["pri"]))).toEqual(["late"]);
+    expect(placedIds(oneSlot([baseTask({ id: "urgent", urgency: 4 }), baseTask({ id: "pri", urgency: 3 })], ["pri"]))).toEqual(["urgent"]);
+  });
+
+  it("never schedules a priority the rules exclude", () => {
+    expect(placedIds(oneSlot([baseTask({ id: "pri", status: "completed" }), baseTask({ id: "a" })], ["pri"]))).toEqual(["a"]);
+    const tired = oneSlot([baseTask({ id: "pri", energyLevel: "high" }), baseTask({ id: "a" })], ["pri"], { lowEnergy: true });
+    expect(placedIds(tired)).toEqual(["a"]);
+    expect(tired.unscheduled).toEqual([{ taskId: "pri", reason: LOW_ENERGY_DEFERRAL_REASON }]);
+  });
+});

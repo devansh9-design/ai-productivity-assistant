@@ -95,6 +95,8 @@ export interface AnalyticsResult {
   manualMinutes: number;
   daily: DailyPoint[];
   completion: { planned: number; completedOnTime: number; rate: number | null; daysCounted: number };
+  /** The planned task occurrences counted above that were not done on or before their day. */
+  missedPlanned: Array<{ taskId: string; date: string }>;
   categories: Bar[];
   overdueCount: number;
   streak: { current: number; longestInRange: number };
@@ -192,7 +194,9 @@ export function computeAnalytics(input: AnalyticsInput): AnalyticsResult {
   }
   const taskBlocksByPlan = new Map<string, AnalyticsPlanBlock[]>();
   for (const block of input.planBlocks) {
-    if (block.kind !== "task" || !block.task_id) continue;
+    // Blocks are deleted with their task; skipping unknown tasks keeps planned
+    // time, the completion rate, and the missed list consistent if one remains.
+    if (block.kind !== "task" || !block.task_id || !taskById.has(block.task_id)) continue;
     taskBlocksByPlan.set(block.daily_plan_id, [...(taskBlocksByPlan.get(block.daily_plan_id) ?? []), block]);
   }
 
@@ -209,13 +213,15 @@ export function computeAnalytics(input: AnalyticsInput): AnalyticsResult {
   let planned = 0;
   let completedOnTime = 0;
   let daysCounted = 0;
-  for (const [date, plan] of committed) {
+  const missedPlanned: AnalyticsResult["missedPlanned"] = [];
+  for (const [date, plan] of [...committed.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     if (date >= today) continue;
     daysCounted += 1;
     for (const taskId of new Set((taskBlocksByPlan.get(plan.id) ?? []).map((block) => block.task_id as string))) {
       planned += 1;
       const task = taskById.get(taskId);
       if (task?.status === "completed" && task.completed_at && localDate(task.completed_at) <= date) completedOnTime += 1;
+      else missedPlanned.push({ taskId, date });
     }
   }
 
@@ -265,6 +271,7 @@ export function computeAnalytics(input: AnalyticsInput): AnalyticsResult {
     manualMinutes: sum(entries.filter((entry) => entry.source === "manual")),
     daily,
     completion: { planned, completedOnTime, rate: planned ? completedOnTime / planned : null, daysCounted },
+    missedPlanned,
     categories,
     overdueCount: input.tasks.filter((task) => OPEN_TASK_STATUSES.has(task.status) && task.due_date !== null && task.due_date < today).length,
     streak: { current, longestInRange },

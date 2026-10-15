@@ -50,6 +50,8 @@ export interface SchedulePolicy {
   eligibleStatuses?: string[];
   /** Must-do tasks already on the plan; they count against the three-per-day limit. */
   mustDoAlreadyScheduled?: number;
+  /** This week's chosen priorities. They get a bounded ranking boost; eligibility and every other rule still apply. */
+  priorityTaskIds?: string[];
 }
 
 export interface ScheduleInput {
@@ -92,6 +94,12 @@ const DEFAULT_BUFFER_PERCENT = 20;
 const MUST_DO_LIMIT = 3;
 export const NO_TIME_REASON ="No contiguous time remains within working hours after commitments and buffer.";
 export const LOW_ENERGY_DEFERRAL_REASON = "low_energy: high-energy work is deferred while your energy is low.";
+/**
+ * Ranking points for a weekly priority. Deliberately smaller than one urgency
+ * level (100 points) and than being overdue (100 deadline points), so it only
+ * reorders tasks that were otherwise close.
+ */
+export const WEEKLY_PRIORITY_BOOST = 50;
 
 function timeToMinutes(value: string): number | null {
   const match = /^(\d{2}):(\d{2})/.exec(value);
@@ -180,9 +188,10 @@ export function scoreTask(task: SchedulerTask, date: string): number {
   return task.urgency * 100 + task.impact * 40 + PRIORITY_POINTS[task.priority] + deadlinePoints(task.dueDate, date) + durationPoints + (task.mustDo ? 1_000 : 0);
 }
 
-function sortTasks(tasks: SchedulerTask[], date: string): SchedulerTask[] {
+function sortTasks(tasks: SchedulerTask[], date: string, boosted: ReadonlySet<string> = new Set()): SchedulerTask[] {
+  const rank = (task: SchedulerTask) => scoreTask(task, date) + (boosted.has(task.id) ? WEEKLY_PRIORITY_BOOST : 0);
   return [...tasks].sort((a, b) =>
-    scoreTask(b, date) - scoreTask(a, date)
+    rank(b) - rank(a)
     || (a.dueDate ?? "9999-12-31").localeCompare(b.dueDate ?? "9999-12-31")
     || (a.estimatedMinutes ?? Number.MAX_SAFE_INTEGER) - (b.estimatedMinutes ?? Number.MAX_SAFE_INTEGER)
     || a.createdAt.localeCompare(b.createdAt)
@@ -259,8 +268,9 @@ export function generateSchedule(input: ScheduleInput): ScheduleResult {
     else withEstimate.push(task);
   }
   const mustDoCapacity = Math.max(0, MUST_DO_LIMIT - (policy.mustDoAlreadyScheduled ?? 0));
-  const rankedMustDos = sortTasks(withEstimate.filter((task) => task.mustDo), input.date);
-  const others = sortTasks(withEstimate.filter((task) => !task.mustDo), input.date);
+  const boosted = new Set(policy.priorityTaskIds ?? []);
+  const rankedMustDos = sortTasks(withEstimate.filter((task) => task.mustDo), input.date, boosted);
+  const others = sortTasks(withEstimate.filter((task) => !task.mustDo), input.date, boosted);
   const candidates = [...rankedMustDos.slice(0, mustDoCapacity), ...(policy.lowEnergy ? lighterFirst(others) : others)];
   for (const task of rankedMustDos.slice(mustDoCapacity)) unscheduled.push({ taskId: task.id, reason: "must_do_limit: only the top three must-do tasks can be scheduled in one day." });
 

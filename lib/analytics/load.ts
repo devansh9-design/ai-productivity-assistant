@@ -5,6 +5,7 @@ import {
   COMMITTED_PLAN_STATUSES,
   computeAnalytics,
   type AnalyticsGoal,
+  type AnalyticsInput,
   type AnalyticsMilestone,
   type AnalyticsPlan,
   type AnalyticsPlanBlock,
@@ -62,6 +63,17 @@ export async function loadAnalytics(
   timeZone: string,
   today: string,
 ): Promise<AnalyticsResult> {
+  return computeAnalytics(await loadAnalyticsInput(supabase, userId, range, timeZone, today));
+}
+
+/** The raw rows behind the dashboard, for callers that need more than the computed result. */
+export async function loadAnalyticsInput(
+  supabase: SupabaseClient,
+  userId: string,
+  range: AnalyticsRange,
+  timeZone: string,
+  today: string,
+): Promise<AnalyticsInput> {
   const windowStart = `${addDaysToISODate(range.from, -1)}T00:00:00Z`;
   const windowEnd = `${addDaysToISODate(range.to, 2)}T00:00:00Z`;
 
@@ -92,9 +104,9 @@ export async function loadAnalytics(
         .in("daily_plan_id", chunk).eq("kind", "task").order("id").range(from, to)),
   ]);
 
-  return computeAnalytics({
+  return {
     range, today, timeZone, tasks,
     sessions: [...rangeSessions, ...candidateSessions],
     plans, planBlocks, goals, projects, milestones,
-  });
+  };
 }

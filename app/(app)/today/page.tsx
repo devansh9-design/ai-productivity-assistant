@@ -17,6 +17,9 @@ import { PlanHistory } from "@/components/plan-history";
 import { ReplanPanel } from "@/components/replan-panel";
 import { InsightsCard } from "@/components/insights-card";
 import { loadPersonalization } from "@/lib/preferences/load";
+import { loadWeeklyPlan, type SavedWeeklyPlan } from "@/lib/review/load";
+import { mondayOf } from "@/lib/review/week";
+import { WeekPrioritiesCard } from "@/components/review/week-priorities-card";
 import type { Checkin, DailyPlan, FixedCommitment, JournalEntry, PlanBlock, PlanUnscheduledTask, Task, TaskSession } from "@/lib/types";
 
 const RECENT_REFLECTIONS_LIMIT = 7;
@@ -98,6 +101,12 @@ export default async function TodayPage() {
   ]);
 
   const personalization = await loadPersonalization(supabase, timeZone);
+  let weekPlan: SavedWeeklyPlan | null = null;
+  try {
+    weekPlan = await loadWeeklyPlan(supabase, mondayOf(todayISODate));
+  } catch (error) {
+    console.error("Could not load this week's priorities:", error instanceof Error ? error.message : error);
+  }
   const plans = allPlans ?? [];
   const activePlan = plans.find((p) => ["draft", "publishing", "publication_failed", "confirmed"].includes(p.status)) ?? null;
   const historyPlans = plans.filter((p) => p.status === "superseded" || p.status === "completed");
@@ -156,6 +165,8 @@ export default async function TodayPage() {
           <ActionForm action={generateDraftPlan} resetOnSuccess={false}><ActionSubmitButton pendingLabel="Generating..." className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">{activePlan ? "Regenerate plan" : "Generate plan"}</ActionSubmitButton></ActionForm>
         </div>
       </div>
+
+      <WeekPrioritiesCard priorities={weekPlan?.priorities ?? []} />
 
       {activePlan && (
         <PlanTimeline

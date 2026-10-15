@@ -5,11 +5,13 @@ on:
     paths:
       - "supabase/migrations/**"
       - "scripts/ci-auth-schema-stub.sql"
+      - "scripts/db-tests/**"
       - ".github/workflows/migrations-clean-db.yml"
   pull_request:
     paths:
       - "supabase/migrations/**"
       - "scripts/ci-auth-schema-stub.sql"
+      - "scripts/db-tests/**"
       - ".github/workflows/migrations-clean-db.yml"
 
 jobs:
@@ -77,3 +79,8 @@ jobs:
             where trigger_schema = 'public'
             order by trigger_name;
           "
+
+      # Behaviour tests run last: they replace the stub auth.uid() to act as
+      # different users, which must not affect the checks above.
+      - name: Database behaviour tests (weekly reviews and plans)
+        run: psql -v ON_ERROR_STOP=1 -At -f scripts/db-tests/weekly-reviews.sql
