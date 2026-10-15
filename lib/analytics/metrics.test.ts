@@ -144,6 +144,11 @@ describe("computeAnalytics: hand-checked sample week", () => {
 
   it("counts each planned task once per finished day, completed on or before that day", () => {
     expect(result.completion).toEqual({ planned: 4, completedOnTime: 1, rate: 0.25, daysCounted: 2 });
+    expect(result.missedPlanned).toEqual([
+      { taskId: "t2", date: "2026-10-12" },
+      { taskId: "t3", date: "2026-10-13" },
+      { taskId: "t4", date: "2026-10-13" },
+    ]);
   });
 
   it("computes streaks, overdue tasks, reasons, and excluded sessions", () => {
@@ -174,6 +179,7 @@ describe("computeAnalytics edge cases", () => {
       loggedMinutes: 0, timerMinutes: 0, manualMinutes: 0,
       daily: range.days.map((date) => ({ date, plannedMinutes: null, loggedMinutes: 0 })),
       completion: { planned: 0, completedOnTime: 0, rate: null, daysCounted: 0 },
+      missedPlanned: [],
       categories: [], overdueCount: 0, streak: { current: 0, longestInRange: 0 },
       reasons: [], reasonTaskCount: 0, goals: [], milestones: [], excluded: { open: 0, empty: 0, overlong: 0 },
     });

@@ -9,6 +9,8 @@ import { type AvailabilityRuleInput, type FixedCommitmentInput, type SchedulerTa
 import { buildDraftPlan, type ExistingManualBlock } from "@/lib/plans/planner";
 import { buildReplan, isReplanMode, type ReplanBlock } from "@/lib/plans/replan";
 import { loadPersonalization } from "@/lib/preferences/load";
+import { loadWeekPriorityIds } from "@/lib/review/load";
+import { mondayOf } from "@/lib/review/week";
 import { getValidAccessToken } from "@/lib/google/oauth";
 import { fetchCalendarEvents } from "@/lib/google/calendar";
 import { createPlannerEvent, deletePlannerEvent, getOrCreatePlannerCalendar, updatePlannerEvent } from "@/lib/google/planner-calendar";
@@ -81,11 +83,20 @@ export async function generateDraftPlan() {
     try { calendarEvents = await fetchCalendarEvents(tokenResult.token, planDate, tzCookie); } catch { return { error: "Could not sync Google Calendar events. Please try again." }; }
   }
 
-  const personalization = await loadPersonalization(supabase, timeZone);
+  const [personalization, priorityTaskIds] = await Promise.all([
+    loadPersonalization(supabase, timeZone),
+    loadWeekPriorityIds(supabase, mondayOf(planDate)),
+  ]);
   const planResult = buildDraftPlan({
     date: planDate, weekday, availabilityRules, fixedCommitments, tasks: engineTasks, existingManualBlocks: manualBlocks, calendarEvents,
-    // Generating mid-day must not place new work in time that has already passed.
-    policy: { bufferPercent: personalization.preferences.bufferPercent, durationFactor: personalization.durationFactor, earliestStartTime: getLocalTimeHHMM(timeZone) },
+    policy: {
+      bufferPercent: personalization.preferences.bufferPercent,
+      durationFactor: personalization.durationFactor,
+      // Generating mid-day must not place new work in time that has already passed.
+      earliestStartTime: getLocalTimeHHMM(timeZone),
+      // This week's chosen priorities rank first among otherwise similar work.
+      priorityTaskIds,
+    },
   });
   const { data: plan, error: planError } = await supabase.rpc("create_draft_plan", {
     p_user_id: user.id,
