@@ -2,6 +2,15 @@ import type { TaskStatus } from "@/lib/types";
 
 export const TASK_STATUSES: TaskStatus[] = ["todo", "in_progress", "completed", "skipped", "deferred"];
 
+/**
+ * Statuses that end active work on a task. Moving a task into one of these
+ * stops any timer still running on it; the Today timer is hidden for
+ * completed tasks, so a session left open there could never be stopped.
+ */
+export function stopsRunningTimer(status: TaskStatus): boolean {
+  return status === "completed" || status === "skipped" || status === "deferred";
+}
+
 export interface TaskStatusUpdate {
   status: TaskStatus;
   status_reason: string | null;

@@ -18,9 +18,11 @@ function headlineStats(result: AnalyticsResult) {
     {
       label: "Completion rate",
       value: completion.rate === null ? "—" : `${Math.round(completion.rate * 100)}%`,
-      detail: completion.rate === null
-        ? "No finished days with a confirmed plan in this range."
-        : `${completion.completedOnTime} of ${plural(completion.planned, "planned task")} done on time, over ${plural(completion.daysCounted, "day")}.`,
+      detail: completion.rate !== null
+        ? `${completion.completedOnTime} of ${plural(completion.planned, "planned task")} done on time, over ${plural(completion.daysCounted, "day")}.`
+        : completion.daysCounted
+          ? `${plural(completion.daysCounted, "finished day")} with a confirmed plan, but no tasks remain on those plans (deleting a task removes it from plans).`
+          : "No finished days with a confirmed plan in this range.",
     },
     {
       label: "Logged time",
