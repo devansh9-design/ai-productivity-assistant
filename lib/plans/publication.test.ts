@@ -272,7 +272,9 @@ describe("confirmPlan with the Day 12 calendar switches", () => {
     vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
     vi.mocked(plannerModule.createPlannerEvent).mockRejectedValueOnce(new GoogleRequestError("Quota exceeded for quota metric 'Queries' secret-detail", 403));
 
-    await expect(confirmPlan(confirmationForm())).rejects.toThrow("Publishing to AI Planner failed");
+    const thrown = await confirmPlan(confirmationForm()).then(() => null, (error: Error) => error);
+    expect(thrown?.message).toBe(`Publishing to AI Planner failed: ${CALENDAR_ERROR_MESSAGES.permission_denied}`);
+    expect(thrown?.message).not.toContain("secret-detail");
     expect(db.statusWrites).toHaveLength(1);
     expect(db.statusWrites[0]).toMatchObject({ last_error_operation: "publish", last_error_code: "permission_denied", last_error_message: CALENDAR_ERROR_MESSAGES.permission_denied });
     expect(JSON.stringify(db.statusWrites)).not.toContain("secret-detail");

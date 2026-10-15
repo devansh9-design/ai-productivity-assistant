@@ -6,6 +6,7 @@ import { describeCalendarState, type CalendarIntegrationStatus, type CalendarSta
 
 const STATE_BADGES: Record<CalendarState, { label: string; className: string; dot: string }> = {
   connected: { label: "Connected", className: "bg-emerald-100 text-emerald-800", dot: "bg-emerald-500" },
+  paused: { label: "Paused", className: "bg-sky-100 text-sky-800", dot: "bg-sky-500" },
   failing: { label: "Last attempt failed", className: "bg-amber-100 text-amber-900", dot: "bg-amber-500" },
   needs_reconnect: { label: "Needs reconnecting", className: "bg-rose-100 text-rose-800", dot: "bg-rose-500" },
   not_connected: { label: "Not connected", className: "bg-slate-100 text-slate-700", dot: "bg-slate-400" },
@@ -32,6 +33,10 @@ export function CalendarStatusCard({ connected, status, timeZone, oauthResult, o
     : "Never";
   const state = status ? describeCalendarState(status, connected) : connected ? "connected" : "not_connected";
   const badge = STATE_BADGES[state];
+  // Name the paused switch when only one is off.
+  const badgeLabel = state === "paused" && status && status.planningEnabled !== status.publishingEnabled
+    ? (status.planningEnabled ? "Publishing paused" : "Planning paused")
+    : badge.label;
 
   return (
     <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
@@ -39,11 +44,11 @@ export function CalendarStatusCard({ connected, status, timeZone, oauthResult, o
         <h2 className="text-lg font-semibold text-slate-900">Google Calendar</h2>
         <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium ${badge.className}`}>
           <span className={`inline-block h-2 w-2 rounded-full ${badge.dot}`} />
-          {badge.label}
+          {badgeLabel}
         </span>
       </div>
       <p className="mt-1 text-sm text-slate-600">
-        When connected, plans avoid your calendar events, and confirmed plans are published to a separate AI Planner calendar.
+        When calendar planning is enabled, the app checks your Google Calendar events to avoid scheduling work during meetings. When publishing is enabled, confirmed plans are added to your separate AI Planner calendar.
       </p>
 
       {oauthResult === "connected" && (

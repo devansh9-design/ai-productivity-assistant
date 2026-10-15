@@ -361,8 +361,15 @@ export async function confirmPlan(formData: FormData) {
     }
   } catch (publishError) {
     await markPublicationFailed();
-    if (isGoogleFailure(publishError)) await recordCalendarFailure(supabase, user.id, "publish", classifyCalendarError(publishError));
-    const message = publishError instanceof Error ? publishError.message : "Unknown publishing error.";
+    // Google failures show only the app's message for their cause: a
+    // GoogleRequestError can carry Google's raw response text. The app's own
+    // errors (database mappings) keep their app-written messages.
+    let message = publishError instanceof Error ? publishError.message : "Unknown publishing error.";
+    if (isGoogleFailure(publishError)) {
+      const code = classifyCalendarError(publishError);
+      await recordCalendarFailure(supabase, user.id, "publish", code);
+      message = CALENDAR_ERROR_MESSAGES[code];
+    }
     throw new Error(`Publishing to AI Planner failed: ${message}`);
   }
   const { error: completionError } = await supabase.rpc("complete_daily_plan_publication", { p_plan_id: plan.id });

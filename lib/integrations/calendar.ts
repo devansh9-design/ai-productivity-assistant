@@ -90,12 +90,16 @@ export async function readCalendarForPlanning(input: {
   }
 }
 
-export type CalendarState = "not_connected" | "needs_reconnect" | "failing" | "connected";
+export type CalendarState = "not_connected" | "needs_reconnect" | "paused" | "failing" | "connected";
 
-/** The headline state for the Settings card. */
+/**
+ * The headline state for the Settings card. A broken or missing connection
+ * outranks a pause; a pause of either switch outranks an old failure.
+ */
 export function describeCalendarState(status: CalendarIntegrationStatus, connected: boolean): CalendarState {
   if (status.needsReconnect) return "needs_reconnect";
   if (!connected) return "not_connected";
+  if (!status.planningEnabled || !status.publishingEnabled) return "paused";
   const lastSuccess = Math.max(Date.parse(status.lastReadAt ?? "") || 0, Date.parse(status.lastPublishedAt ?? "") || 0);
   if (status.lastErrorAt && Date.parse(status.lastErrorAt) > lastSuccess) return "failing";
   return "connected";

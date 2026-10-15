@@ -114,6 +114,15 @@ describe("describeCalendarState", () => {
     expect(describeCalendarState(status({ ...failed, lastPublishedAt: "2026-10-16T11:00:00Z" }), true)).toBe("connected");
   });
 
+  it("is paused when either switch is off, unless the connection itself needs attention", () => {
+    const failed = { lastErrorAt: "2026-10-16T10:00:00Z", lastErrorCode: "unavailable" as const };
+    expect(describeCalendarState(status({ planningEnabled: false }), true)).toBe("paused");
+    expect(describeCalendarState(status({ publishingEnabled: false }), true)).toBe("paused");
+    expect(describeCalendarState(status({ planningEnabled: false, publishingEnabled: false, ...failed }), true)).toBe("paused");
+    expect(describeCalendarState(status({ publishingEnabled: false }), false)).toBe("not_connected");
+    expect(describeCalendarState(status({ publishingEnabled: false, needsReconnect: true }), true)).toBe("needs_reconnect");
+  });
+
   it("is not connected without credentials", () => {
     expect(describeCalendarState(DEFAULT_CALENDAR_STATUS, false)).toBe("not_connected");
     expect(describeCalendarState(DEFAULT_CALENDAR_STATUS, true)).toBe("connected");
