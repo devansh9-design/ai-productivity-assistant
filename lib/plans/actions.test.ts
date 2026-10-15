@@ -6,6 +6,8 @@ import * as calendarModule from "@/lib/google/calendar";
 import * as personalizationModule from "@/lib/preferences/load";
 import { DEFAULT_PLANNING_PREFERENCES } from "@/lib/preferences/preferences";
 import { cookies } from "next/headers";
+import { GoogleRequestError } from "@/lib/google/errors";
+import { CALENDAR_ERROR_MESSAGES, PLAN_WITHOUT_CALENDAR_WARNING } from "@/lib/integrations/calendar";
 
 // Mock next/headers
 vi.mock("next/headers", () => ({
@@ -28,11 +30,14 @@ describe("generateDraftPlan - Timezone Validation (Day 6)", () => {
           not: vi.fn(() => ({
             returns: vi.fn().mockResolvedValue({ data: [], error: null }),
           })),
+          // integration_status: .eq("user_id").eq("provider").maybeSingle(); no row means defaults.
+          eq: vi.fn(() => ({ maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }) })),
           maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
           returns: vi.fn().mockResolvedValue({ data: [], error: null }),
         })),
         returns: vi.fn().mockResolvedValue({ data: [], error: null }),
       })),
+      upsert: vi.fn().mockResolvedValue({ error: null }),
     })),
     rpc: vi.fn(() => ({
       single: vi.fn().mockResolvedValue({ data: { id: "plan-1" }, error: null })
@@ -134,5 +139,102 @@ describe("generateDraftPlan - Timezone Validation (Day 6)", () => {
     // The fetch shouldn't happen, but plan creation SHOULD proceed (using UTC date)
     expect(calendarModule.fetchCalendarEvents).not.toHaveBeenCalled();
     expect(mockSupabase.rpc).toHaveBeenCalled();
+  });
+});
+
+describe("generateDraftPlan with the Day 12 calendar switches", () => {
+  let statusWrites: Array<Record<string, unknown>>;
+
+  function signInWith(statusRow: Record<string, unknown> | null) {
+    statusWrites = [];
+    const query = (data: unknown) => {
+      const chain: Record<string, unknown> = {};
+      for (const method of ["select", "eq", "in", "not"]) chain[method] = vi.fn(() => chain);
+      chain.maybeSingle = vi.fn().mockResolvedValue({ data, error: null });
+      chain.returns = vi.fn().mockResolvedValue({ data: [], error: null });
+      chain.then = (resolve: (value: unknown) => unknown) => resolve({ data: [], error: null });
+      return chain;
+    };
+    const supabase = {
+      from: vi.fn((table: string) => table === "integration_status"
+        ? { ...query(statusRow), upsert: vi.fn((row: Record<string, unknown>) => { statusWrites.push(row); return Promise.resolve({ error: null }); }) }
+        : query(null)),
+      rpc: vi.fn(() => ({ single: vi.fn().mockResolvedValue({ data: { id: "plan-1" }, error: null }) })),
+    };
+    vi.spyOn(authModule, "requireUser").mockResolvedValue({ user: { id: "user-1" }, supabase } as unknown as never);
+    return supabase;
+  }
+
+  function form(withoutCalendar = false) {
+    const data = new FormData();
+    if (withoutCalendar) data.set("without_calendar", "1");
+    return data;
+  }
+
+  beforeEach(() => {
+    vi.mocked(cookies).mockResolvedValue({ get: vi.fn().mockReturnValue({ value: "Asia/Kolkata" }) } as unknown as never);
+    vi.spyOn(oauthModule, "getValidAccessToken").mockResolvedValue({ token: "valid-token" });
+    vi.spyOn(calendarModule, "fetchCalendarEvents").mockResolvedValue([]);
+    vi.spyOn(personalizationModule, "loadPersonalization").mockResolvedValue({
+      preferences: DEFAULT_PLANNING_PREFERENCES, durationFactor: 1, durationSamples: 0, insights: [],
+    });
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("makes no Google call while calendar planning is paused, and says so", async () => {
+    const supabase = signInWith({ planning_enabled: false, publishing_enabled: true, needs_reconnect: false });
+    const result = await generateDraftPlan(form());
+    expect(oauthModule.getValidAccessToken).not.toHaveBeenCalled();
+    expect(calendarModule.fetchCalendarEvents).not.toHaveBeenCalled();
+    expect(supabase.rpc).toHaveBeenCalled();
+    expect(result).toEqual({ message: expect.stringContaining("calendar planning is paused") });
+  });
+
+  it("does not create a plan when the calendar cannot be read, and offers the explicit choice", async () => {
+    const supabase = signInWith(null);
+    vi.mocked(calendarModule.fetchCalendarEvents).mockRejectedValue(new GoogleRequestError("backend error body", 503));
+    const result = await generateDraftPlan(form());
+    expect(supabase.rpc).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      error: CALENDAR_ERROR_MESSAGES.unavailable,
+      retryWith: { field: "without_calendar", label: "Plan without my calendar", warning: PLAN_WITHOUT_CALENDAR_WARNING },
+    });
+    expect(statusWrites).toEqual([expect.objectContaining({ last_error_operation: "read", last_error_code: "unavailable" })]);
+    expect(JSON.stringify(statusWrites)).not.toContain("backend error body");
+  });
+
+  it("plans without the calendar only when the user chose it, and says meetings are not included", async () => {
+    const supabase = signInWith(null);
+    const result = await generateDraftPlan(form(true));
+    expect(oauthModule.getValidAccessToken).not.toHaveBeenCalled();
+    expect(calendarModule.fetchCalendarEvents).not.toHaveBeenCalled();
+    expect(supabase.rpc).toHaveBeenCalled();
+    expect(result).toEqual({ message: expect.stringContaining("meetings are not included") });
+  });
+
+  it("keeps asking to reconnect after Google revoked access, instead of planning without the calendar", async () => {
+    const supabase = signInWith({ planning_enabled: true, publishing_enabled: true, needs_reconnect: true });
+    vi.mocked(oauthModule.getValidAccessToken).mockResolvedValue({ error: "not_connected" });
+    const result = await generateDraftPlan(form());
+    expect(supabase.rpc).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ error: CALENDAR_ERROR_MESSAGES.reconnect_required });
+  });
+
+  it("records a successful read", async () => {
+    signInWith(null);
+    await generateDraftPlan(form());
+    expect(statusWrites).toEqual([expect.objectContaining({ provider: "google_calendar", last_read_at: expect.any(String), needs_reconnect: false })]);
+  });
+
+  it("stops with an error when the switches cannot be read, rather than guessing", async () => {
+    const supabase = signInWith(null);
+    const original = supabase.from.getMockImplementation()!;
+    supabase.from.mockImplementation((table: string) => table === "integration_status"
+      ? { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: { message: "relation does not exist" } }) }) }) }) }
+      : original(table));
+    await expect(generateDraftPlan(form())).rejects.toThrow("Google Calendar settings could not be loaded");
+    expect(oauthModule.getValidAccessToken).not.toHaveBeenCalled();
+    expect(supabase.rpc).not.toHaveBeenCalled();
   });
 });

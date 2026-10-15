@@ -3,8 +3,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { TIMEZONE_COOKIE_NAME, DEFAULT_TIMEZONE, getLocalTimeHHMM, getTodayISODate } from "@/lib/tasks/timezone";
-import { getValidAccessToken } from "@/lib/google/oauth";
-import { fetchCalendarEvents } from "@/lib/google/calendar";
+import { readCalendarForUser } from "@/lib/integrations/status";
 import { loadPersonalization } from "@/lib/preferences/load";
 import { buildPreferenceSummary } from "@/lib/preferences/preferences";
 
@@ -112,12 +111,11 @@ export async function getAIPlanningContext(): Promise<AIPlanningContext> {
   const incompleteTasks = tasks.filter((task) => !scheduledTaskIds.has(task.id));
 
   let calendar: AIPlanningContext["calendar"] = { connected: false, events: [] };
-  const tokenResult = await getValidAccessToken(user.id);
-  if (!("error" in tokenResult)) {
-    try {
-      calendar = { connected: true, events: await fetchCalendarEvents(tokenResult.token, date, timezone) };
-    } catch { /* Never claim availability when sync failed. */ }
-  }
+  // Respects the calendar planning pause: no Google call while it is paused.
+  try {
+    const read = await readCalendarForUser(supabase, user.id, date, timezone, false);
+    if (read.kind === "events") calendar = { connected: true, events: read.events };
+  } catch { /* Never claim availability when the calendar could not be checked. */ }
 
   const personalization = await loadPersonalization(supabase, timezone, now);
   const preferencesSummary = buildPreferenceSummary({

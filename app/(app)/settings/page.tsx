@@ -4,8 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 import { ActionForm } from "@/components/action-form";
 import { ActionSubmitButton } from "@/components/action-submit-button";
 import { createAvailabilityRule, createFixedCommitment, deleteAvailabilityRule, deleteFixedCommitment } from "@/lib/scheduler/actions";
-import { getGoogleConnectUrl, disconnectGoogleCalendar } from "@/lib/google/actions";
+import { CalendarStatusCard } from "@/components/settings/calendar-status-card";
+import { getGoogleConnectUrl } from "@/lib/google/actions";
 import { isGoogleCalendarConnected } from "@/lib/google/oauth";
+import { loadCalendarStatus } from "@/lib/integrations/status";
 import { savePlanningPreferences } from "@/lib/preferences/actions";
 import { loadPersonalization } from "@/lib/preferences/load";
 import { MIN_DURATION_SAMPLES } from "@/lib/preferences/preferences";
@@ -42,6 +44,7 @@ export default async function SettingsPage({
 
   // Google Calendar connection status (service-role check, never exposes tokens)
   const googleConnected = user ? await isGoogleCalendarConnected(user.id) : false;
+  const calendarStatus = user ? await loadCalendarStatus(supabase, user.id).catch(() => null) : null;
   const timeZone = (await cookies()).get(TIMEZONE_COOKIE_NAME)?.value || DEFAULT_TIMEZONE;
   const { preferences, durationFactor, durationSamples } = await loadPersonalization(supabase, timeZone);
 
@@ -131,52 +134,8 @@ export default async function SettingsPage({
         </div>
       </div>
 
-      {/* ----- Day 6: Google Calendar integration ----- */}
-      <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Google Calendar</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Connect your Google Calendar to automatically block out calendar events when generating your daily plan. Only read access is requested.
-        </p>
-
-        {googleStatus === "connected" && (
-          <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
-            Google Calendar connected successfully.
-          </p>
-        )}
-        {googleError && (
-          <p role="alert" className="mt-3 rounded-lg bg-rose-50 px-4 py-2 text-sm text-rose-700">
-            Google Calendar connection failed: {googleError === "oauth_state_mismatch" ? "Security validation failed. Please try again." : googleError === "token_exchange_failed" ? "Could not complete authorization. Please try again." : googleError}
-          </p>
-        )}
-
-        <div className="mt-4">
-          {googleConnected ? (
-            <div className="flex items-center gap-4">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-800">
-                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-                Connected
-              </span>
-              <ActionForm action={disconnectGoogleCalendar} resetOnSuccess={false}>
-                <ActionSubmitButton
-                  pendingLabel="Disconnecting..."
-                  className="rounded-lg border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
-                >
-                  Disconnect
-                </ActionSubmitButton>
-              </ActionForm>
-            </div>
-          ) : (
-            <ActionForm action={connectGoogleCalendar} resetOnSuccess={false}>
-              <ActionSubmitButton
-                pendingLabel="Connecting..."
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-              >
-                Connect Google Calendar
-              </ActionSubmitButton>
-            </ActionForm>
-          )}
-        </div>
-      </div>
+      <CalendarStatusCard connected={googleConnected} status={calendarStatus} timeZone={timeZone}
+        oauthResult={googleStatus} oauthError={googleError} connectAction={connectGoogleCalendar} />
     </section>
   );
 }
