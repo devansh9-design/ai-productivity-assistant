@@ -111,9 +111,20 @@ export function TaskActionForm({ task }: { task: Task }) {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {(task.status === "todo" || task.status === "deferred") && (
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => submit("in_progress")}
+          className={`${BUTTON_CLASS} border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100`}
+        >
+          {isPending ? "Saving…" : "Start task"}
+        </button>
+      )}
       {task.status !== "completed" && (
         <button
           type="button"
+          disabled={isPending}
           onClick={() => setMode("completing")}
           className={`${BUTTON_CLASS} border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}
         >
@@ -123,6 +134,7 @@ export function TaskActionForm({ task }: { task: Task }) {
       {task.status !== "skipped" && task.status !== "completed" && (
         <button
           type="button"
+          disabled={isPending}
           onClick={() => setMode("skipping")}
           className={`${BUTTON_CLASS} border-slate-300 text-slate-700 hover:bg-slate-100`}
         >
@@ -132,6 +144,7 @@ export function TaskActionForm({ task }: { task: Task }) {
       {task.status !== "deferred" && task.status !== "completed" && (
         <button
           type="button"
+          disabled={isPending}
           onClick={() => setMode("deferring")}
           className={`${BUTTON_CLASS} border-slate-300 text-slate-700 hover:bg-slate-100`}
         >
