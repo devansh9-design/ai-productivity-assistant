@@ -5,6 +5,8 @@ import * as oauthModule from "@/lib/google/oauth";
 import * as plannerModule from "@/lib/google/planner-calendar";
 import * as serviceRoleModule from "@/lib/supabase/service-role";
 import { cookies } from "next/headers";
+import { GoogleRequestError } from "@/lib/google/errors";
+import { CALENDAR_ERROR_MESSAGES } from "@/lib/integrations/calendar";
 
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -32,11 +34,13 @@ function makeDb(options: {
   rpcErrors?: Record<string, unknown>;
   blockError?: unknown;
   mappingInsertError?: unknown;
+  calendarStatus?: Record<string, unknown>;
 }) {
   const currentPlan = options.currentPlan ?? plan("publishing");
   const mappings = [...(options.mappings ?? [])];
   const rpcCalls: string[] = [];
   const mappingRows = { value: mappings };
+  const statusWrites: Array<Record<string, unknown>> = [];
 
   const blockQuery = {
     eq: vi.fn().mockReturnThis(),
@@ -86,6 +90,13 @@ function makeDb(options: {
     from: vi.fn((table: string) => {
       if (table === "plan_blocks") return { select: vi.fn().mockReturnValue(blockQuery) };
       if (table === "ai_conversations") return { update: vi.fn() };
+      if (table === "integration_status") {
+        const statusQuery = { eq: vi.fn(() => statusQuery), maybeSingle: vi.fn().mockResolvedValue({ data: options.calendarStatus ?? null, error: null }) };
+        return {
+          select: vi.fn().mockReturnValue(statusQuery),
+          upsert: vi.fn((row: Record<string, unknown>) => { statusWrites.push(row); return Promise.resolve({ error: null }); }),
+        };
+      }
       throw new Error(`Unexpected user table: ${table}`);
     }),
   };
@@ -98,7 +109,7 @@ function makeDb(options: {
   vi.spyOn(plannerModule, "deletePlannerEvent").mockResolvedValue();
   vi.mocked(cookies).mockResolvedValue({ get: vi.fn().mockReturnValue({ value: "Asia/Kolkata" }) } as never);
 
-  return { supabase, serviceRole, rpcCalls, mappingRows };
+  return { supabase, serviceRole, rpcCalls, mappingRows, statusWrites };
 }
 
 function confirmationForm() {
@@ -135,7 +146,7 @@ describe("confirmPlan publication state machine", () => {
     vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
     vi.mocked(plannerModule.createPlannerEvent).mockRejectedValueOnce(new Error("Google unavailable"));
 
-    await expect(confirmPlan(confirmationForm())).rejects.toThrow("Publishing to AI Planner failed");
+    expect(await confirmPlan(confirmationForm())).toEqual({ error: expect.stringContaining("Publishing to AI Planner failed") });
     expect(db.rpcCalls).toContain("fail_daily_plan_publication");
     expect(db.rpcCalls).not.toContain("complete_daily_plan_publication");
   });
@@ -173,7 +184,7 @@ describe("confirmPlan publication state machine", () => {
     const db = makeDb({ mappings: [], mappingInsertError: new Error("mapping insert failed") });
     vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
 
-    await expect(confirmPlan(confirmationForm())).rejects.toThrow("local mapping could not be saved");
+    expect(await confirmPlan(confirmationForm())).toEqual({ error: expect.stringContaining("local mapping could not be saved") });
     expect(plannerModule.deletePlannerEvent).toHaveBeenCalledWith("access-token", "planner-calendar", "google-block-1");
     expect(db.rpcCalls).toContain("fail_daily_plan_publication");
     expect(db.rpcCalls).not.toContain("complete_daily_plan_publication");
@@ -183,7 +194,7 @@ describe("confirmPlan publication state machine", () => {
     const db = makeDb({ rpcErrors: { begin_daily_plan_publication: new Error("Only draft or failed plans can be published") } });
     vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
 
-    await expect(confirmPlan(confirmationForm())).rejects.toThrow("Only draft or failed plans can be published");
+    expect(await confirmPlan(confirmationForm())).toEqual({ error: expect.stringContaining("Only draft or failed plans can be published") });
     expect(plannerModule.createPlannerEvent).not.toHaveBeenCalled();
   });
 
@@ -194,7 +205,7 @@ describe("confirmPlan publication state machine", () => {
       .mockResolvedValueOnce("google-block-1")
       .mockRejectedValueOnce(new Error("second event failed"));
 
-    await expect(confirmPlan(confirmationForm())).rejects.toThrow("Publishing to AI Planner failed");
+    expect(await confirmPlan(confirmationForm())).toEqual({ error: expect.stringContaining("Publishing to AI Planner failed") });
     expect(plannerModule.createPlannerEvent).toHaveBeenCalledTimes(2);
     expect(db.rpcCalls).toContain("fail_daily_plan_publication");
     expect(db.rpcCalls).not.toContain("complete_daily_plan_publication");
@@ -218,7 +229,7 @@ describe("confirmPlan publication state machine", () => {
   it("protects a recent publishing attempt", async () => {
     const recentDb = makeDb({ rpcErrors: { begin_daily_plan_publication: new Error("publication is still active") } });
     vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(recentDb.serviceRole as never);
-    await expect(confirmPlan(confirmationForm())).rejects.toThrow("publication is still active");
+    expect(await confirmPlan(confirmationForm())).toEqual({ error: expect.stringContaining("publication is still active") });
     expect(plannerModule.createPlannerEvent).not.toHaveBeenCalled();
   });
 
@@ -231,5 +242,58 @@ describe("confirmPlan publication state machine", () => {
     await confirmPlan(confirmationForm());
     expect(plannerModule.createPlannerEvent).not.toHaveBeenCalled();
     expect(staleDb.rpcCalls).toContain("complete_daily_plan_publication");
+  });
+});
+
+describe("confirmPlan with the Day 12 calendar switches", () => {
+  it("confirms without any Google call when publishing is paused", async () => {
+    const db = makeDb({ mappings: [], calendarStatus: { planning_enabled: true, publishing_enabled: false, needs_reconnect: false } });
+    const serviceRole = vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
+
+    const result = await confirmPlan(confirmationForm());
+
+    expect(result).toEqual({ message: expect.stringContaining("publishing is paused") });
+    expect(db.rpcCalls).toEqual(["begin_daily_plan_publication", "complete_daily_plan_publication"]);
+    expect(oauthModule.getValidAccessToken).not.toHaveBeenCalled();
+    expect(plannerModule.getOrCreatePlannerCalendar).not.toHaveBeenCalled();
+    expect(plannerModule.createPlannerEvent).not.toHaveBeenCalled();
+    expect(serviceRole).not.toHaveBeenCalled();
+  });
+
+  it("records a successful publish", async () => {
+    const db = makeDb({ mappings: [] });
+    vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
+    await confirmPlan(confirmationForm());
+    expect(db.statusWrites).toEqual([expect.objectContaining({ provider: "google_calendar", last_published_at: expect.any(String), needs_reconnect: false })]);
+  });
+
+  it("records a Google failure by code and app-written message only", async () => {
+    const db = makeDb({ mappings: [] });
+    vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
+    vi.mocked(plannerModule.createPlannerEvent).mockRejectedValueOnce(new GoogleRequestError("Quota exceeded for quota metric 'Queries' secret-detail", 403));
+
+    const result = await confirmPlan(confirmationForm());
+    expect(result).toEqual({ error: `Publishing to AI Planner failed: ${CALENDAR_ERROR_MESSAGES.permission_denied}` });
+    expect(JSON.stringify(result)).not.toContain("secret-detail");
+    expect(db.statusWrites).toHaveLength(1);
+    expect(db.statusWrites[0]).toMatchObject({ last_error_operation: "publish", last_error_code: "permission_denied", last_error_message: CALENDAR_ERROR_MESSAGES.permission_denied });
+    expect(JSON.stringify(db.statusWrites)).not.toContain("secret-detail");
+    expect(JSON.stringify(db.statusWrites)).not.toContain("access-token");
+  });
+
+  it("does not blame Google for the app's own database errors", async () => {
+    const db = makeDb({ mappings: [], mappingInsertError: new Error("mapping insert failed") });
+    vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
+    expect(await confirmPlan(confirmationForm())).toEqual({ error: expect.stringContaining("local mapping could not be saved") });
+    expect(db.statusWrites).toEqual([]);
+  });
+
+  it("asks to reconnect after Google revoked access, even though the credentials were removed", async () => {
+    const db = makeDb({ mappings: [], calendarStatus: { planning_enabled: true, publishing_enabled: true, needs_reconnect: true } });
+    vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
+    vi.mocked(oauthModule.getValidAccessToken).mockResolvedValue({ error: "not_connected" });
+
+    expect(await confirmPlan(confirmationForm())).toEqual({ error: expect.stringContaining(CALENDAR_ERROR_MESSAGES.reconnect_required) });
+    expect(db.rpcCalls).toContain("fail_daily_plan_publication");
   });
 });

@@ -11,6 +11,7 @@ import {
   isGoogleCalendarConnected,
   revokeGoogleToken,
 } from "@/lib/google/oauth";
+import { clearCalendarReconnect } from "@/lib/integrations/status";
 
 const OAUTH_STATE_COOKIE = "__google_oauth_state";
 
@@ -40,7 +41,7 @@ export async function getGoogleConnectUrl(): Promise<string> {
 // ---------------------------------------------------------------------------
 
 export async function disconnectGoogleCalendar(): Promise<void> {
-  const { user } = await requireUser();
+  const { supabase, user } = await requireUser();
 
   // Fetch token for revocation via the token result
   const tokenResult = await getValidAccessToken(user.id);
@@ -49,6 +50,8 @@ export async function disconnectGoogleCalendar(): Promise<void> {
   }
 
   await deleteGoogleCredentials(user.id);
+  // Disconnecting on purpose means plans no longer expect the calendar.
+  await clearCalendarReconnect(supabase, user.id);
   revalidatePath("/settings");
   revalidatePath("/today");
 }

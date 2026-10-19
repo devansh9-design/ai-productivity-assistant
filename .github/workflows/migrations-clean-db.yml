@@ -84,3 +84,6 @@ jobs:
       # different users, which must not affect the checks above.
       - name: Database behaviour tests (weekly reviews and plans)
         run: psql -v ON_ERROR_STOP=1 -At -f scripts/db-tests/weekly-reviews.sql
+
+      - name: Database behaviour tests (integration status)
+        run: psql -v ON_ERROR_STOP=1 -At -f scripts/db-tests/integration-status.sql

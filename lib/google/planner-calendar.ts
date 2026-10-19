@@ -2,6 +2,7 @@ import "server-only";
 
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getUtcBoundsForLocalDate } from "@/lib/google/calendar";
+import { GoogleRequestError } from "@/lib/google/errors";
 
 const GOOGLE_CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 const PLANNER_SUMMARY = "AI Planner";
@@ -102,9 +103,10 @@ async function findExistingPlannerCalendar(
 
     if (result.status !== 200) {
       const apiError = result.body as GoogleApiError | null;
-      throw new Error(
+      throw new GoogleRequestError(
         apiError?.error?.message ??
           `Could not list Google calendars (${result.status}).`,
+        result.status,
       );
     }
 
@@ -153,8 +155,9 @@ async function getPersistedPlannerCalendar(
     return null;
   }
 
-  throw new Error(
+  throw new GoogleRequestError(
     `Could not verify AI Planner calendar (${result.status}).`,
+    result.status,
   );
 }
 
@@ -209,9 +212,10 @@ export async function getOrCreatePlannerCalendar(
 
   if (created.status !== 200 && created.status !== 201) {
     const apiError = created.body as GoogleApiError | null;
-    throw new Error(
+    throw new GoogleRequestError(
       apiError?.error?.message ??
         `Could not create AI Planner calendar (${created.status}).`,
+      created.status,
     );
   }
 
@@ -273,9 +277,10 @@ export async function deletePlannerEventsForDate(
 
     if (result.status !== 200) {
       const apiError = result.body as GoogleApiError | null;
-      throw new Error(
+      throw new GoogleRequestError(
         apiError?.error?.message ??
           `Could not list AI Planner events (${result.status}).`,
+        result.status,
       );
     }
 
@@ -300,9 +305,10 @@ export async function deletePlannerEventsForDate(
 
     if (result.status !== 204 && result.status !== 200 && result.status !== 404 && result.status !== 410) {
       const apiError = result.body as GoogleApiError | null;
-      throw new Error(
+      throw new GoogleRequestError(
         apiError?.error?.message ??
           `Could not delete AI Planner event ${eventId} (${result.status}).`,
+        result.status,
       );
     }
   }
@@ -349,9 +355,10 @@ export async function updatePlannerEvent(
   }
   if (result.status !== 200) {
     const apiError = result.body as GoogleApiError | null;
-    throw new Error(
+    throw new GoogleRequestError(
       apiError?.error?.message ??
         `Could not update AI Planner event ${googleEventId} (${result.status}).`,
+      result.status,
     );
   }
 }
@@ -369,9 +376,10 @@ export async function deletePlannerEvent(
 
   if (![200, 204, 404, 410].includes(result.status)) {
     const apiError = result.body as GoogleApiError | null;
-    throw new Error(
+    throw new GoogleRequestError(
       apiError?.error?.message ??
         `Could not delete AI Planner event ${googleEventId} (${result.status}).`,
+      result.status,
     );
   }
 }
@@ -410,9 +418,10 @@ export async function createPlannerEvent(
 
   if (result.status !== 200 && result.status !== 201) {
     const apiError = result.body as GoogleApiError | null;
-    throw new Error(
+    throw new GoogleRequestError(
       apiError?.error?.message ??
         `Could not publish AI Planner event (${result.status}).`,
+      result.status,
     );
   }
 

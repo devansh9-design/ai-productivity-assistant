@@ -73,6 +73,7 @@ export default async function TodayPage() {
     { data: recentCheckins },
     { data: allPlans },
     { data: fixedCommitments },
+    { data: calendarSwitches },
   ] = await Promise.all([
     supabase.from("tasks").select("*").order("due_date", { ascending: true }).returns<Task[]>(),
     supabase.from("task_sessions").select("*").is("ended_at", null).returns<TaskSession[]>(),
@@ -98,6 +99,8 @@ export default async function TodayPage() {
       .returns<Checkin[]>(),
     supabase.from("daily_plans").select("*").eq("plan_date", todayISODate).order("version", { ascending: false }).returns<DailyPlan[]>(),
     supabase.from("fixed_commitments").select("*").eq("commitment_date", todayISODate).order("start_time").returns<FixedCommitment[]>(),
+    // Display only; the plan actions re-read the switches before any Google call.
+    supabase.from("integration_status").select("planning_enabled,publishing_enabled").eq("provider", "google_calendar").maybeSingle<{ planning_enabled: boolean; publishing_enabled: boolean }>(),
   ]);
 
   const personalization = await loadPersonalization(supabase, timeZone);
@@ -107,6 +110,10 @@ export default async function TodayPage() {
   } catch (error) {
     console.error("Could not load this week's priorities:", error instanceof Error ? error.message : error);
   }
+  const calendarPauseNote = [
+    calendarSwitches?.planning_enabled === false && "Calendar planning is paused: plans do not include your Google Calendar events.",
+    calendarSwitches?.publishing_enabled === false && "Publishing is paused: confirmed plans are not added to Google Calendar.",
+  ].filter(Boolean).join(" ");
   const plans = allPlans ?? [];
   const activePlan = plans.find((p) => ["draft", "publishing", "publication_failed", "confirmed"].includes(p.status)) ?? null;
   const historyPlans = plans.filter((p) => p.status === "superseded" || p.status === "completed");
@@ -161,7 +168,8 @@ export default async function TodayPage() {
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div><h2 className="text-lg font-semibold text-slate-900">Daily schedule</h2><p className="mt-1 text-sm text-slate-600">{activePlan ? `Plan v${activePlan.version} with ${activePlan.buffer_minutes} minutes of protected buffer.` : "Generate a deterministic plan from your settings, commitments, and open tasks."}</p></div>
+          <div><h2 className="text-lg font-semibold text-slate-900">Daily schedule</h2><p className="mt-1 text-sm text-slate-600">{activePlan ? `Plan v${activePlan.version} with ${activePlan.buffer_minutes} minutes of protected buffer.` : "Generate a deterministic plan from your settings, commitments, and open tasks."}</p>
+            {calendarPauseNote && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{calendarPauseNote} <Link href="/settings" className="font-semibold underline">Change in Settings</Link></p>}</div>
           <ActionForm action={generateDraftPlan} resetOnSuccess={false}><ActionSubmitButton pendingLabel="Generating..." className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">{activePlan ? "Regenerate plan" : "Generate plan"}</ActionSubmitButton></ActionForm>
         </div>
       </div>

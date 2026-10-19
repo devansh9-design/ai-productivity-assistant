@@ -12,7 +12,8 @@ import { loadPersonalization } from "@/lib/preferences/load";
 import { loadWeekPriorityIds } from "@/lib/review/load";
 import { mondayOf } from "@/lib/review/week";
 import { getValidAccessToken } from "@/lib/google/oauth";
-import { fetchCalendarEvents } from "@/lib/google/calendar";
+import { calendarFailure, calendarSkipNote, classifyCalendarError, CALENDAR_ERROR_MESSAGES, isGoogleFailure, tokenErrorCode, wantsPlanWithoutCalendar } from "@/lib/integrations/calendar";
+import { loadCalendarStatus, readCalendarForUser, recordCalendarFailure, recordCalendarSuccess } from "@/lib/integrations/status";
 import { createPlannerEvent, deletePlannerEvent, getOrCreatePlannerCalendar, updatePlannerEvent } from "@/lib/google/planner-calendar";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { DailyPlan, PlanBlock, Task } from "@/lib/types";
@@ -44,7 +45,11 @@ function validTime(value: string): boolean {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 }
 
-export async function generateDraftPlan() {
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+export async function generateDraftPlan(formData?: FormData) {
   const { supabase, user } = await requireUser();
   const cookieStore = await cookies();
   const timeZone = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value || DEFAULT_TIMEZONE;
@@ -71,17 +76,19 @@ export async function generateDraftPlan() {
   const fixedCommitments: FixedCommitmentInput[] = (commitments ?? []).map((c) => ({ id: c.id, date: c.commitment_date, title: c.title, startTime: c.start_time, endTime: c.end_time }));
   const engineTasks = (tasks ?? []).map((task) => ({ id: task.id, title: task.title, status: task.status, priority: task.priority, urgency: task.urgency, impact: task.impact, mustDo: task.must_do, dueDate: task.due_date, estimatedMinutes: task.estimated_minutes, energyLevel: task.energy_level, createdAt: task.created_at }));
 
-  const tokenResult = await getValidAccessToken(user.id);
-  let calendarEvents: { googleEventId: string; title: string; startTime: string; endTime: string }[] = [];
-  if ("error" in tokenResult) {
-    if (tokenResult.error === "reconnect_required") return { error: "Google Calendar credentials are no longer valid. Please reconnect Google Calendar in Settings." };
-    if (tokenResult.error === "calendar_sync_failed") return { error: "Could not sync Google Calendar events. Please try again." };
-  } else {
-    const tzCookie = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value;
-    if (!tzCookie) return { error: "Timezone could not be determined. Please refresh the page to sync your timezone." };
-    try { new Intl.DateTimeFormat("en-US", { timeZone: tzCookie }); } catch { return { error: "Invalid timezone detected. Please refresh the page to sync your timezone." }; }
-    try { calendarEvents = await fetchCalendarEvents(tokenResult.token, planDate, tzCookie); } catch { return { error: "Could not sync Google Calendar events. Please try again." }; }
-  }
+  // Reading the calendar needs the browser's timezone; without a calendar the
+  // plan falls back to the default timezone as before.
+  const tzCookie = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value;
+  let timeZoneError: string | null = null;
+  if (!tzCookie) timeZoneError = "Timezone could not be determined. Please refresh the page to sync your timezone.";
+  else try { new Intl.DateTimeFormat("en-US", { timeZone: tzCookie }); } catch { timeZoneError = "Invalid timezone detected. Please refresh the page to sync your timezone."; }
+  // Returned, not thrown: production builds hide a thrown action's message.
+  let calendar;
+  try { calendar = await readCalendarForUser(supabase, user.id, planDate, tzCookie ?? timeZone, wantsPlanWithoutCalendar(formData), timeZoneError); }
+  catch (statusError) { return { error: errorMessage(statusError, "Your Google Calendar settings could not be loaded. Please try again.") }; }
+  if (calendar.kind === "invalid_timezone") return { error: calendar.error };
+  if (calendar.kind === "failed") return calendarFailure(calendar.code);
+  const calendarEvents = calendar.kind === "events" ? calendar.events : [];
 
   const [personalization, priorityTaskIds] = await Promise.all([
     loadPersonalization(supabase, timeZone),
@@ -108,9 +115,24 @@ export async function generateDraftPlan() {
   }).single<DailyPlan>();
   if (planError || !plan) return { error: planError?.message ?? "Could not save draft plan." };
   revalidatePath("/today");
+  const note = calendarSkipNote(calendar);
+  return note ? { message: `Draft plan generated. ${note}` } : undefined;
 }
 
+/**
+ * Production builds replace a thrown Server Action's message with a generic
+ * one, so confirmAIProposal and confirmPlan return expected failures as
+ * { error } for the caller to show.
+ */
 export async function confirmAIProposal(proposal: PlanningProposal, conversationId?: string) {
+  try {
+    return await applyAIProposal(proposal, conversationId);
+  } catch (error) {
+    return { ok: false as const, error: errorMessage(error, "Unable to confirm the proposal.") };
+  }
+}
+
+async function applyAIProposal(proposal: PlanningProposal, conversationId?: string) {
   const { supabase, user } = await requireUser();
   const validation = validatePlanningProposal(proposal);
   if (!validation.ok) throw new Error(validation.error);
@@ -166,11 +188,12 @@ export async function confirmAIProposal(proposal: PlanningProposal, conversation
     throw new Error("The task to reschedule is not present in today's active plan.");
   }
 
-  const tokenResult = await getValidAccessToken(user.id);
-  if ("error" in tokenResult) throw new Error("Google Calendar must be connected before a schedule can be confirmed.");
-
-  let calendarEvents: { startTime: string; endTime: string; title: string }[];
-  try { calendarEvents = await fetchCalendarEvents(tokenResult.token, planDate, timeZone); } catch { throw new Error("Could not refresh Google Calendar. The proposal was not applied."); }
+  // AI proposals are checked against the calendar; there is no "without my
+  // calendar" option here. A pause skips the check, and the reply says so.
+  const calendar = await readCalendarForUser(supabase, user.id, planDate, timeZone, false);
+  if (calendar.kind === "failed") throw new Error(`${CALENDAR_ERROR_MESSAGES[calendar.code]} The proposal was not applied.`);
+  if (calendar.kind === "skipped" && calendar.reason === "not_connected") throw new Error("Google Calendar must be connected before a schedule can be confirmed.");
+  const calendarEvents = calendar.kind === "events" ? calendar.events : [];
 
   const weekday = new Date(planDate + "T00:00:00Z").getUTCDay();
   const workingRules = (rulesResult.data ?? []).filter((rule) => rule.weekday === weekday && rule.kind === "working");
@@ -251,10 +274,19 @@ export async function confirmAIProposal(proposal: PlanningProposal, conversation
   }
 
   revalidatePath("/today");
-  return { ok: true, plan_id: draft.id, message: "Schedule proposal applied to a draft plan. Review it on Today and use Confirm plan to publish it to AI Planner." };
+  const note = calendarSkipNote(calendar);
+  return { ok: true as const, plan_id: draft.id, message: `Schedule proposal applied to a draft plan.${note ? ` ${note}` : ""} Review it on Today and use Confirm plan to publish it to AI Planner.` };
 }
 
 export async function confirmPlan(formData: FormData) {
+  try {
+    return await publishPlan(formData);
+  } catch (error) {
+    return { error: errorMessage(error, "The plan could not be confirmed. Please try again.") };
+  }
+}
+
+async function publishPlan(formData: FormData) {
   const { supabase, user } = await requireUser();
   const planId = requiredText(formData, "plan_id", "Plan ID");
   const { data: plan, error } = await supabase.rpc("begin_daily_plan_publication", { p_plan_id: planId }).single<DailyPlan>();
@@ -264,13 +296,25 @@ export async function confirmPlan(formData: FormData) {
     if (failureError) console.error("Could not mark plan publication as failed:", failureError);
   };
 
+  let calendarStatus;
+  try { calendarStatus = await loadCalendarStatus(supabase, user.id); } catch (statusError) { await markPublicationFailed(); revalidatePath("/today"); throw statusError; }
+
+  // Publishing paused: confirm the plan without calling Google at all.
+  if (!calendarStatus.publishingEnabled) {
+    const { error: pausedCompletionError } = await supabase.rpc("complete_daily_plan_publication", { p_plan_id: plan.id });
+    if (pausedCompletionError) { await markPublicationFailed(); throw new Error(`The plan could not be confirmed: ${pausedCompletionError.message}`); }
+    revalidatePath("/today");
+    return { message: "Plan confirmed. Google Calendar was not updated because publishing is paused in Settings; AI Planner events from an earlier version of today's plan, if any, were left as they were." };
+  }
+
   const tokenResult = await getValidAccessToken(user.id);
   if ("error" in tokenResult) {
     await markPublicationFailed();
+    const code = tokenErrorCode(tokenResult, calendarStatus.needsReconnect);
+    if (code) await recordCalendarFailure(supabase, user.id, "publish", code);
     revalidatePath("/today");
-    if (tokenResult.error === "not_connected") throw new Error("Google Calendar must be connected before the plan can be published.");
-    if (tokenResult.error === "reconnect_required") throw new Error("Google Calendar needs to be reconnected before the plan can be published.");
-    throw new Error("Google Calendar could not be accessed. Please try again.");
+    if (!code) throw new Error("Google Calendar must be connected before the plan can be published. To confirm without it, pause publishing in Settings.");
+    throw new Error(CALENDAR_ERROR_MESSAGES[code]);
   }
 
   const cookieStore = await cookies();
@@ -345,7 +389,15 @@ export async function confirmPlan(formData: FormData) {
     }
   } catch (publishError) {
     await markPublicationFailed();
-    const message = publishError instanceof Error ? publishError.message : "Unknown publishing error.";
+    // Google failures show only the app's message for their cause: a
+    // GoogleRequestError can carry Google's raw response text. The app's own
+    // errors (database mappings) keep their app-written messages.
+    let message = publishError instanceof Error ? publishError.message : "Unknown publishing error.";
+    if (isGoogleFailure(publishError)) {
+      const code = classifyCalendarError(publishError);
+      await recordCalendarFailure(supabase, user.id, "publish", code);
+      message = CALENDAR_ERROR_MESSAGES[code];
+    }
     throw new Error(`Publishing to AI Planner failed: ${message}`);
   }
   const { error: completionError } = await supabase.rpc("complete_daily_plan_publication", { p_plan_id: plan.id });
@@ -353,6 +405,7 @@ export async function confirmPlan(formData: FormData) {
     await markPublicationFailed();
     throw new Error(`AI Planner published successfully, but the plan status could not be updated: ${completionError.message}`);
   }
+  await recordCalendarSuccess(supabase, user.id, "publish");
   revalidatePath("/today");
 }
 
@@ -408,14 +461,11 @@ export async function replanToday(formData: FormData) {
   const loadError = blocksResult.error ?? unscheduledResult.error ?? tasksResult.error ?? rulesResult.error ?? commitmentsResult.error;
   if (loadError) return { error: `Could not load scheduling data: ${loadError.message}` };
 
-  const tokenResult = await getValidAccessToken(user.id);
-  let calendarEvents: { googleEventId: string; title: string; startTime: string; endTime: string }[] = [];
-  if ("error" in tokenResult) {
-    if (tokenResult.error === "reconnect_required") return { error: "Google Calendar credentials are no longer valid. Please reconnect Google Calendar in Settings." };
-    if (tokenResult.error === "calendar_sync_failed") return { error: "Could not sync Google Calendar events. Please try again." };
-  } else {
-    try { calendarEvents = await fetchCalendarEvents(tokenResult.token, planDate, timeZone); } catch { return { error: "Could not sync Google Calendar events. Please try again." }; }
-  }
+  let calendar;
+  try { calendar = await readCalendarForUser(supabase, user.id, planDate, timeZone, wantsPlanWithoutCalendar(formData)); }
+  catch (statusError) { return { error: errorMessage(statusError, "Your Google Calendar settings could not be loaded. Please try again.") }; }
+  if (calendar.kind === "failed") return calendarFailure(calendar.code);
+  const calendarEvents = calendar.kind === "events" ? calendar.events : [];
 
   const personalization = await loadPersonalization(supabase, timeZone, now);
   const tasks: SchedulerTask[] = (tasksResult.data ?? []).map((task) => ({ id: task.id, title: task.title, status: task.status, priority: task.priority, urgency: task.urgency, impact: task.impact, mustDo: task.must_do, dueDate: task.due_date, estimatedMinutes: task.estimated_minutes, energyLevel: task.energy_level, createdAt: task.created_at }));
@@ -436,7 +486,8 @@ export async function replanToday(formData: FormData) {
     },
     freeWindow,
   });
-  if (!result.changed) return { message: result.summary };
+  const note = calendarSkipNote(calendar);
+  if (!result.changed) return { message: note ? `${result.summary} ${note}` : result.summary };
 
   const { error: draftError } = await supabase.rpc("create_draft_plan", {
     p_user_id: user.id,
@@ -449,7 +500,7 @@ export async function replanToday(formData: FormData) {
   if (draftError) return { error: `Could not save the replanned draft: ${draftError.message}` };
 
   revalidatePath("/today");
-  return { message: `${result.summary} Review the new draft, then use Confirm plan to update Google Calendar.` };
+  return { message: `${result.summary}${note ? ` ${note}` : ""} Review the new draft, then use Confirm plan to update Google Calendar.` };
 }
 
 export async function removePlanBlock(formData: FormData) {
