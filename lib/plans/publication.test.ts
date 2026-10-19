@@ -146,7 +146,7 @@ describe("confirmPlan publication state machine", () => {
     vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
     vi.mocked(plannerModule.createPlannerEvent).mockRejectedValueOnce(new Error("Google unavailable"));
 
-    await expect(confirmPlan(confirmationForm())).rejects.toThrow("Publishing to AI Planner failed");
+    expect(await confirmPlan(confirmationForm())).toEqual({ error: expect.stringContaining("Publishing to AI Planner failed") });
     expect(db.rpcCalls).toContain("fail_daily_plan_publication");
     expect(db.rpcCalls).not.toContain("complete_daily_plan_publication");
   });
@@ -184,7 +184,7 @@ describe("confirmPlan publication state machine", () => {
     const db = makeDb({ mappings: [], mappingInsertError: new Error("mapping insert failed") });
     vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
 
-    await expect(confirmPlan(confirmationForm())).rejects.toThrow("local mapping could not be saved");
+    expect(await confirmPlan(confirmationForm())).toEqual({ error: expect.stringContaining("local mapping could not be saved") });
     expect(plannerModule.deletePlannerEvent).toHaveBeenCalledWith("access-token", "planner-calendar", "google-block-1");
     expect(db.rpcCalls).toContain("fail_daily_plan_publication");
     expect(db.rpcCalls).not.toContain("complete_daily_plan_publication");
@@ -194,7 +194,7 @@ describe("confirmPlan publication state machine", () => {
     const db = makeDb({ rpcErrors: { begin_daily_plan_publication: new Error("Only draft or failed plans can be published") } });
     vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
 
-    await expect(confirmPlan(confirmationForm())).rejects.toThrow("Only draft or failed plans can be published");
+    expect(await confirmPlan(confirmationForm())).toEqual({ error: expect.stringContaining("Only draft or failed plans can be published") });
     expect(plannerModule.createPlannerEvent).not.toHaveBeenCalled();
   });
 
@@ -205,7 +205,7 @@ describe("confirmPlan publication state machine", () => {
       .mockResolvedValueOnce("google-block-1")
       .mockRejectedValueOnce(new Error("second event failed"));
 
-    await expect(confirmPlan(confirmationForm())).rejects.toThrow("Publishing to AI Planner failed");
+    expect(await confirmPlan(confirmationForm())).toEqual({ error: expect.stringContaining("Publishing to AI Planner failed") });
     expect(plannerModule.createPlannerEvent).toHaveBeenCalledTimes(2);
     expect(db.rpcCalls).toContain("fail_daily_plan_publication");
     expect(db.rpcCalls).not.toContain("complete_daily_plan_publication");
@@ -229,7 +229,7 @@ describe("confirmPlan publication state machine", () => {
   it("protects a recent publishing attempt", async () => {
     const recentDb = makeDb({ rpcErrors: { begin_daily_plan_publication: new Error("publication is still active") } });
     vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(recentDb.serviceRole as never);
-    await expect(confirmPlan(confirmationForm())).rejects.toThrow("publication is still active");
+    expect(await confirmPlan(confirmationForm())).toEqual({ error: expect.stringContaining("publication is still active") });
     expect(plannerModule.createPlannerEvent).not.toHaveBeenCalled();
   });
 
@@ -272,9 +272,9 @@ describe("confirmPlan with the Day 12 calendar switches", () => {
     vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
     vi.mocked(plannerModule.createPlannerEvent).mockRejectedValueOnce(new GoogleRequestError("Quota exceeded for quota metric 'Queries' secret-detail", 403));
 
-    const thrown = await confirmPlan(confirmationForm()).then(() => null, (error: Error) => error);
-    expect(thrown?.message).toBe(`Publishing to AI Planner failed: ${CALENDAR_ERROR_MESSAGES.permission_denied}`);
-    expect(thrown?.message).not.toContain("secret-detail");
+    const result = await confirmPlan(confirmationForm());
+    expect(result).toEqual({ error: `Publishing to AI Planner failed: ${CALENDAR_ERROR_MESSAGES.permission_denied}` });
+    expect(JSON.stringify(result)).not.toContain("secret-detail");
     expect(db.statusWrites).toHaveLength(1);
     expect(db.statusWrites[0]).toMatchObject({ last_error_operation: "publish", last_error_code: "permission_denied", last_error_message: CALENDAR_ERROR_MESSAGES.permission_denied });
     expect(JSON.stringify(db.statusWrites)).not.toContain("secret-detail");
@@ -284,7 +284,7 @@ describe("confirmPlan with the Day 12 calendar switches", () => {
   it("does not blame Google for the app's own database errors", async () => {
     const db = makeDb({ mappings: [], mappingInsertError: new Error("mapping insert failed") });
     vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
-    await expect(confirmPlan(confirmationForm())).rejects.toThrow("local mapping could not be saved");
+    expect(await confirmPlan(confirmationForm())).toEqual({ error: expect.stringContaining("local mapping could not be saved") });
     expect(db.statusWrites).toEqual([]);
   });
 
@@ -293,7 +293,7 @@ describe("confirmPlan with the Day 12 calendar switches", () => {
     vi.spyOn(serviceRoleModule, "createServiceRoleClient").mockReturnValue(db.serviceRole as never);
     vi.mocked(oauthModule.getValidAccessToken).mockResolvedValue({ error: "not_connected" });
 
-    await expect(confirmPlan(confirmationForm())).rejects.toThrow(CALENDAR_ERROR_MESSAGES.reconnect_required);
+    expect(await confirmPlan(confirmationForm())).toEqual({ error: expect.stringContaining(CALENDAR_ERROR_MESSAGES.reconnect_required) });
     expect(db.rpcCalls).toContain("fail_daily_plan_publication");
   });
 });

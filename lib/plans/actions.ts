@@ -45,6 +45,10 @@ function validTime(value: string): boolean {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 }
 
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export async function generateDraftPlan(formData?: FormData) {
   const { supabase, user } = await requireUser();
   const cookieStore = await cookies();
@@ -78,7 +82,10 @@ export async function generateDraftPlan(formData?: FormData) {
   let timeZoneError: string | null = null;
   if (!tzCookie) timeZoneError = "Timezone could not be determined. Please refresh the page to sync your timezone.";
   else try { new Intl.DateTimeFormat("en-US", { timeZone: tzCookie }); } catch { timeZoneError = "Invalid timezone detected. Please refresh the page to sync your timezone."; }
-  const calendar = await readCalendarForUser(supabase, user.id, planDate, tzCookie ?? timeZone, wantsPlanWithoutCalendar(formData), timeZoneError);
+  // Returned, not thrown: production builds hide a thrown action's message.
+  let calendar;
+  try { calendar = await readCalendarForUser(supabase, user.id, planDate, tzCookie ?? timeZone, wantsPlanWithoutCalendar(formData), timeZoneError); }
+  catch (statusError) { return { error: errorMessage(statusError, "Your Google Calendar settings could not be loaded. Please try again.") }; }
   if (calendar.kind === "invalid_timezone") return { error: calendar.error };
   if (calendar.kind === "failed") return calendarFailure(calendar.code);
   const calendarEvents = calendar.kind === "events" ? calendar.events : [];
@@ -112,7 +119,20 @@ export async function generateDraftPlan(formData?: FormData) {
   return note ? { message: `Draft plan generated. ${note}` } : undefined;
 }
 
+/**
+ * Production builds replace a thrown Server Action's message with a generic
+ * one, so confirmAIProposal and confirmPlan return expected failures as
+ * { error } for the caller to show.
+ */
 export async function confirmAIProposal(proposal: PlanningProposal, conversationId?: string) {
+  try {
+    return await applyAIProposal(proposal, conversationId);
+  } catch (error) {
+    return { ok: false as const, error: errorMessage(error, "Unable to confirm the proposal.") };
+  }
+}
+
+async function applyAIProposal(proposal: PlanningProposal, conversationId?: string) {
   const { supabase, user } = await requireUser();
   const validation = validatePlanningProposal(proposal);
   if (!validation.ok) throw new Error(validation.error);
@@ -255,10 +275,18 @@ export async function confirmAIProposal(proposal: PlanningProposal, conversation
 
   revalidatePath("/today");
   const note = calendarSkipNote(calendar);
-  return { ok: true, plan_id: draft.id, message: `Schedule proposal applied to a draft plan.${note ? ` ${note}` : ""} Review it on Today and use Confirm plan to publish it to AI Planner.` };
+  return { ok: true as const, plan_id: draft.id, message: `Schedule proposal applied to a draft plan.${note ? ` ${note}` : ""} Review it on Today and use Confirm plan to publish it to AI Planner.` };
 }
 
 export async function confirmPlan(formData: FormData) {
+  try {
+    return await publishPlan(formData);
+  } catch (error) {
+    return { error: errorMessage(error, "The plan could not be confirmed. Please try again.") };
+  }
+}
+
+async function publishPlan(formData: FormData) {
   const { supabase, user } = await requireUser();
   const planId = requiredText(formData, "plan_id", "Plan ID");
   const { data: plan, error } = await supabase.rpc("begin_daily_plan_publication", { p_plan_id: planId }).single<DailyPlan>();
@@ -433,7 +461,9 @@ export async function replanToday(formData: FormData) {
   const loadError = blocksResult.error ?? unscheduledResult.error ?? tasksResult.error ?? rulesResult.error ?? commitmentsResult.error;
   if (loadError) return { error: `Could not load scheduling data: ${loadError.message}` };
 
-  const calendar = await readCalendarForUser(supabase, user.id, planDate, timeZone, wantsPlanWithoutCalendar(formData));
+  let calendar;
+  try { calendar = await readCalendarForUser(supabase, user.id, planDate, timeZone, wantsPlanWithoutCalendar(formData)); }
+  catch (statusError) { return { error: errorMessage(statusError, "Your Google Calendar settings could not be loaded. Please try again.") }; }
   if (calendar.kind === "failed") return calendarFailure(calendar.code);
   const calendarEvents = calendar.kind === "events" ? calendar.events : [];
 

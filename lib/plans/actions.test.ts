@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { generateDraftPlan } from "@/lib/plans/actions";
+import { confirmAIProposal, generateDraftPlan } from "@/lib/plans/actions";
 import * as authModule from "@/lib/auth/require-user";
 import * as oauthModule from "@/lib/google/oauth";
 import * as calendarModule from "@/lib/google/calendar";
@@ -233,8 +233,18 @@ describe("generateDraftPlan with the Day 12 calendar switches", () => {
     supabase.from.mockImplementation((table: string) => table === "integration_status"
       ? { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: { message: "relation does not exist" } }) }) }) }) }
       : original(table));
-    await expect(generateDraftPlan(form())).rejects.toThrow("Google Calendar settings could not be loaded");
+    expect(await generateDraftPlan(form())).toEqual({ error: expect.stringContaining("Google Calendar settings could not be loaded") });
     expect(oauthModule.getValidAccessToken).not.toHaveBeenCalled();
     expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe("confirmAIProposal", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("returns a failure as { error } instead of throwing, so production builds still show the message", async () => {
+    vi.spyOn(authModule, "requireUser").mockResolvedValue({ supabase: {}, user: { id: "user-1" } } as never);
+    const result = await confirmAIProposal({ type: "suggest_schedule", items: [] } as never);
+    expect(result).toEqual({ ok: false, error: expect.any(String) });
   });
 });

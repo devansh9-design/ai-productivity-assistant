@@ -192,6 +192,7 @@ export function AIChat() {
                     setSuccess("");
                     try {
                       const result = await confirmAIProposal(proposal, conversationId);
+                      if (!result.ok) { setError(result.error); return; }
                       setSuccess(result.message);
                       setProposal(null);
                       window.dispatchEvent(new Event("ai-history-updated"));
