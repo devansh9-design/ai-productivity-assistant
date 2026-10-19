@@ -19,6 +19,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { DailyPlan, PlanBlock, Task } from "@/lib/types";
 import { validatePlanningProposal } from "@/lib/ai/validate-proposal";
 import type { PlanningProposal } from "@/lib/ai/proposal";
+import { errorFields, log } from "@/lib/log";
 
 function timeMinutes(value: string): number {
   const match = /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(value);
@@ -293,7 +294,7 @@ async function publishPlan(formData: FormData) {
   if (error || !plan) throw new Error(error?.message ?? "Could not begin plan publication.");
   const markPublicationFailed = async () => {
     const { error: failureError } = await supabase.rpc("fail_daily_plan_publication", { p_plan_id: plan.id });
-    if (failureError) console.error("Could not mark plan publication as failed:", failureError);
+    if (failureError) log("error", "plan.mark_publication_failed_failed", { planId: plan.id, message: failureError.message });
   };
 
   let calendarStatus;
@@ -382,7 +383,7 @@ async function publishPlan(formData: FormData) {
         try {
           await deletePlannerEvent(tokenResult.token, calendarId, googleEventId);
         } catch (cleanupError) {
-          console.error("Could not clean up an unmapped AI Planner event:", cleanupError);
+          log("error", "plan.unmapped_event_cleanup_failed", { planId: plan.id, ...errorFields(cleanupError) });
         }
         throw new Error(`Google event ${googleEventId} was created, but its local mapping could not be saved: ${mappingError.message}`);
       }

@@ -87,3 +87,6 @@ jobs:
 
       - name: Database behaviour tests (integration status)
         run: psql -v ON_ERROR_STOP=1 -At -f scripts/db-tests/integration-status.sql
+
+      - name: Database behaviour tests (security hardening)
+        run: psql -v ON_ERROR_STOP=1 -At -f scripts/db-tests/security-hardening.sql

@@ -14,8 +14,7 @@ export const config = {
      * - favicon.ico (favicon file)
      * - login (auth page)
      * - auth/callback (auth callback route)
-     * - api/telegram (secret-authenticated server-to-server Telegram routes)
      */
-    "/((?!_next/static|_next/image|favicon.ico|login|auth/callback|api/telegram).*)",
+    "/((?!_next/static|_next/image|favicon.ico|login|auth/callback).*)",
   ],
 };

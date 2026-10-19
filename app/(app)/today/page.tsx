@@ -21,6 +21,7 @@ import { loadWeeklyPlan, type SavedWeeklyPlan } from "@/lib/review/load";
 import { mondayOf } from "@/lib/review/week";
 import { WeekPrioritiesCard } from "@/components/review/week-priorities-card";
 import type { Checkin, DailyPlan, FixedCommitment, JournalEntry, PlanBlock, PlanUnscheduledTask, Task, TaskSession } from "@/lib/types";
+import { errorFields, log } from "@/lib/log";
 
 const RECENT_REFLECTIONS_LIMIT = 7;
 
@@ -108,7 +109,7 @@ export default async function TodayPage() {
   try {
     weekPlan = await loadWeeklyPlan(supabase, mondayOf(todayISODate));
   } catch (error) {
-    console.error("Could not load this week's priorities:", error instanceof Error ? error.message : error);
+    log("error", "today.week_priorities_failed", errorFields(error));
   }
   const calendarPauseNote = [
     calendarSwitches?.planning_enabled === false && "Calendar planning is paused: plans do not include your Google Calendar events.",

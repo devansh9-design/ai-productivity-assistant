@@ -5,6 +5,7 @@ import { loadAnalyticsInput } from "@/lib/analytics/load";
 import { buildWeekFacts, weekRange, type MetricKey, type ReviewCheckin, type WeekFacts } from "@/lib/review/facts";
 import type { SchedulerTask } from "@/lib/scheduler/engine";
 import type { EnergyLevel, Task, TaskStatus } from "@/lib/types";
+import { errorFields, log } from "@/lib/log";
 
 export async function loadWeekFacts(
   supabase: SupabaseClient,
@@ -123,7 +124,7 @@ export async function loadWeekPriorityIds(supabase: SupabaseClient, weekStart: s
     const plan = await loadWeeklyPlan(supabase, weekStart);
     return plan?.priorities.map((item) => item.taskId) ?? [];
   } catch (error) {
-    console.error("Could not load weekly priorities:", error instanceof Error ? error.message : error);
+    log("error", "review.week_priorities_failed", errorFields(error));
     return [];
   }
 }

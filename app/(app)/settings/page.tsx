@@ -136,6 +136,17 @@ export default async function SettingsPage({
 
       <CalendarStatusCard connected={googleConnected} status={calendarStatus} timeZone={timeZone}
         oauthResult={googleStatus} oauthError={googleError} connectAction={connectGoogleCalendar} />
+
+      <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+        <h2 className="text-lg font-semibold text-slate-900">Your data</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Download everything you&apos;ve saved (goals, tasks, plans, check-ins, reviews and AI history) as one JSON file. Google sign-in tokens are never included.
+        </p>
+        <a href="/api/export" download
+          className="mt-4 inline-block rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50">
+          Download my data
+        </a>
+      </div>
     </section>
   );
 }

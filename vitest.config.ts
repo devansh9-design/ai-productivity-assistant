@@ -1,5 +1,5 @@
 import path from "node:path";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
     resolve: {
@@ -11,5 +11,7 @@ export default defineConfig({
     },
     test: {
         environment: "node",
+        // Agent worktrees live under .claude/ inside the repo; their tests belong to their own branches.
+        exclude: [...configDefaults.exclude, ".claude/**"],
     },
 });
