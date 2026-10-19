@@ -16,19 +16,20 @@ import {
 } from "@/lib/analytics/metrics";
 import type { AnalyticsRange } from "@/lib/analytics/range";
 import { addDaysToISODate } from "@/lib/tasks/timezone";
+import { readAnalyticsPage } from "@/lib/analytics/read-page";
 
 /** PostgREST returns at most this many rows per request by default. */
 const PAGE_SIZE = 1000;
 /** Keeps `in (...)` filters well within URL length limits. */
 const ID_CHUNK = 150;
 
-type Page<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
+type Page<T> = PromiseLike<{ data: T[] | null; error: { code?: string; message: string } | null }>;
 
 /** Reads every page so results are never silently truncated at the row limit. */
 async function fetchAll<T>(query: (from: number, to: number) => Page<T>): Promise<T[]> {
   const rows: T[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await query(from, from + PAGE_SIZE - 1);
+    const { data, error } = await readAnalyticsPage(() => query(from, from + PAGE_SIZE - 1));
     if (error) throw new Error(error.message);
     rows.push(...(data ?? []));
     if (!data || data.length < PAGE_SIZE) return rows;
