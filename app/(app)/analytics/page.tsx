@@ -11,6 +11,7 @@ import { BarList } from "@/components/analytics/bar-list";
 import { PlannedVsLogged } from "@/components/analytics/planned-vs-logged";
 import { ProgressList } from "@/components/analytics/progress-list";
 import { RangeSelector } from "@/components/analytics/range-selector";
+import { errorFields, log } from "@/lib/log";
 
 function headlineStats(result: AnalyticsResult) {
   const { completion, streak } = result;
@@ -62,7 +63,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   try {
     result = await loadAnalytics(supabase, user.id, range, timeZone, today);
   } catch (error) {
-    console.error("Analytics load failed:", error instanceof Error ? error.message : error);
+    log("error", "analytics.load_failed", errorFields(error));
     loadError = "Analytics could not be loaded right now. Please refresh to try again.";
   }
 

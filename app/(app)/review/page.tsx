@@ -10,6 +10,7 @@ import { PlanForm } from "@/components/review/plan-form";
 import { SummaryCard } from "@/components/review/summary-card";
 import { WeekFactsView } from "@/components/review/week-facts";
 import { WeekPicker } from "@/components/review/week-picker";
+import { errorFields, log } from "@/lib/log";
 
 function weekLabel(weekStart: string): string {
   return `${formatDay(weekStart)} to ${formatDay(weekEnd(weekStart))}`;
@@ -32,7 +33,7 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
     ]);
     data = { facts, saved, plan, openTasks };
   } catch (error) {
-    console.error("Weekly review failed to load:", error instanceof Error ? error.message : error);
+    log("error", "review.load_failed", errorFields(error));
   }
 
   const header = (

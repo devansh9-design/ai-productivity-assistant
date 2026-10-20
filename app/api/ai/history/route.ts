@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/require-user";
+import { errorFields, log } from "@/lib/log";
 
 export const runtime = "nodejs";
 
@@ -13,7 +14,7 @@ export async function GET() {
       .limit(20);
 
     if (error) {
-      console.error("AI history fetch error:", error);
+      log("error", "ai.history_failed", errorFields(error));
       return NextResponse.json({ error: "Unable to load AI history." }, { status: 500 });
     }
     return NextResponse.json({ ok: true, conversations: data ?? [] });
@@ -21,7 +22,7 @@ export async function GET() {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    console.error("AI history error:", error);
+    log("error", "ai.history_failed", errorFields(error));
     return NextResponse.json({ error: "Unable to load AI history." }, { status: 500 });
   }
 }

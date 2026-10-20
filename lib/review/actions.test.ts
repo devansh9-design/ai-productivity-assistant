@@ -26,10 +26,12 @@ function facts(empty: boolean) {
 
 let rpcCalls: Array<{ name: string; args: Record<string, unknown> }>;
 
-function signIn() {
+/** aiWait is what claim_ai_request answers: 0 allows the AI call, more is the wait in seconds. */
+function signIn(aiWait = 0) {
   rpcCalls = [];
   const supabase = {
     rpc: (name: string, args: Record<string, unknown>) => {
+      if (name === "claim_ai_request") return Promise.resolve({ data: aiWait, error: null });
       rpcCalls.push({ name, args });
       return Promise.resolve({ data: null, error: null });
     },
@@ -94,6 +96,16 @@ describe("generateWeeklySummary", () => {
     const result = await generateWeeklySummary(form({ week: "2026-10-05" }));
     expect(rpcCalls[0].args).toMatchObject({ p_source: "fallback" });
     expect(result).toEqual({ message: expect.stringContaining("The AI service was unavailable") });
+  });
+
+  it("writes the summary from the numbers without calling the AI when the request limit is reached", async () => {
+    signIn(1800);
+    vi.spyOn(loadModule, "loadWeekFacts").mockResolvedValue(facts(false));
+    const gemini = vi.spyOn(geminiModule, "generateGeminiJson");
+    const result = await generateWeeklySummary(form({ week: "2026-10-05" }));
+    expect(gemini).not.toHaveBeenCalled();
+    expect(rpcCalls[0].args).toMatchObject({ p_source: "fallback" });
+    expect(result).toEqual({ message: expect.stringContaining("AI request limit was reached") });
   });
 
   it("only reviews a listed week, whatever the form says", async () => {

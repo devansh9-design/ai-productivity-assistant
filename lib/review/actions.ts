@@ -10,6 +10,8 @@ import { loadOpenTasks, loadWeekFacts } from "@/lib/review/load";
 import { parseWeeklyPlanForm } from "@/lib/review/plan-form";
 import { buildSummaryPrompt, fallbackSummary, SUMMARY_RESPONSE_SCHEMA, validateAISummary, type WeeklySummary } from "@/lib/review/summary";
 import { planningWeekFor, resolveReviewWeek } from "@/lib/review/week";
+import { errorFields, log } from "@/lib/log";
+import { claimAIRequest, describeWait, type AIRequestClaim } from "@/lib/ai/rate-limit";
 
 async function localToday() {
   const cookieTimeZone = (await cookies()).get(TIMEZONE_COOKIE_NAME)?.value || DEFAULT_TIMEZONE;
@@ -33,7 +35,7 @@ export async function generateWeeklySummary(formData: FormData) {
   try {
     facts = await loadWeekFacts(supabase, user.id, week, timeZone, today);
   } catch (error) {
-    console.error("Weekly facts failed to load:", error instanceof Error ? error.message : error);
+    log("error", "review.facts_failed", errorFields(error));
     return { error: "Could not load this week's data. Please try again." };
   }
 
@@ -41,11 +43,24 @@ export async function generateWeeklySummary(formData: FormData) {
   if (facts.isEmpty) {
     summary = fallbackSummary(facts, "Nothing was recorded this week, so the AI was not used.");
   } else {
+    // Shares the AI chat's per-user limit; over it, the summary is written from the numbers.
+    let claim: AIRequestClaim;
     try {
+      claim = await claimAIRequest(supabase);
+    } catch (limitError) {
+      log("error", "ai.rate_limit_check_failed", { userId: user.id, ...errorFields(limitError) });
+      claim = { allowed: false, retryAfterSeconds: 0 };
+    }
+    if (!claim.allowed) {
+      if (claim.retryAfterSeconds > 0) log("warn", "ai.rate_limited", { userId: user.id, retryAfterSeconds: claim.retryAfterSeconds });
+      summary = fallbackSummary(facts, claim.retryAfterSeconds > 0
+        ? `The AI request limit was reached, so this summary was written from your numbers. The AI can be used again in ${describeWait(claim.retryAfterSeconds)}.`
+        : "The AI service was unavailable, so this summary was written from your numbers.");
+    } else try {
       const checked = validateAISummary(await generateGeminiJson({ prompt: buildSummaryPrompt(facts), responseSchema: SUMMARY_RESPONSE_SCHEMA }), facts);
       summary = checked.ok ? checked.summary : fallbackSummary(facts, `The AI summary was not used: ${checked.reason}`);
     } catch (error) {
-      console.error("Weekly summary AI call failed:", error instanceof Error ? error.message : error);
+      log("error", "review.summary_ai_failed", errorFields(error));
       summary = fallbackSummary(facts, "The AI service was unavailable, so this summary was written from your numbers.");
     }
   }

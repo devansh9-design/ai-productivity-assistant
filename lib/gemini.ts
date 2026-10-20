@@ -1,5 +1,7 @@
 import "server-only";
 
+import { log } from "@/lib/log";
+
 // Prefer the newest stable Flash model, but keep lower-cost/older stable
 // models available as capacity fallbacks. Gemini can return 503 during
 // temporary capacity spikes even when the API key and request are valid.
@@ -100,11 +102,16 @@ export async function generateGeminiJson({
 }: GeminiGenerateOptions): Promise<unknown> {
   let lastStatus = 503;
   let lastBody = "";
+  const started = Date.now();
+  const failedModels: Array<{ model: string; status: number; ms: number }> = [];
 
   for (const model of GEMINI_MODELS) {
+    const modelStarted = Date.now();
     const response = await requestModel(model, prompt, responseSchema);
 
     if (response.ok) {
+      // Which model answered and how long it took, including any fallbacks before it.
+      log("info", "ai.gemini_answered", { model, ms: Date.now() - started, modelMs: Date.now() - modelStarted, failedModels });
       const data = (await response.json()) as {
         candidates?: Array<{
           content?: { parts?: Array<{ text?: string }> };
@@ -129,10 +136,12 @@ export async function generateGeminiJson({
 
     lastStatus = response.status;
     lastBody = await response.text().catch(() => "");
+    failedModels.push({ model, status: response.status, ms: Date.now() - modelStarted });
 
     if (!shouldTryAnotherModel(response.status)) break;
   }
 
+  log("error", "ai.gemini_failed", { ms: Date.now() - started, failedModels });
   const error = new Error(`Gemini API request failed with status ${lastStatus}.`);
   Object.assign(error, { status: lastStatus, body: lastBody });
   throw error;

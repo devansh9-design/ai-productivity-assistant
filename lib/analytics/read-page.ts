@@ -1,4 +1,5 @@
 import "server-only";
+import { log } from "@/lib/log";
 
 type ReadResult<T> = {
   data: T[] | null;
@@ -19,14 +20,14 @@ export async function readAnalyticsPage<T>(read: () => PromiseLike<ReadResult<T>
     const futureJwt = result.error?.code === "PGRST303"
       && result.error.message === "JWT issued at future";
     if (!futureJwt) {
-      if (!result.error && attempt > 0) console.info("Analytics read recovered after JWT timing rejection", { retries: attempt });
+      if (!result.error && attempt > 0) log("info", "analytics.jwt_timing_recovered", { retries: attempt });
       return result;
     }
     if (attempt >= RETRY_DELAYS_MS.length) {
-      console.error("Analytics JWT timing retries exhausted", { code: "PGRST303", retries: attempt });
+      log("error", "analytics.jwt_timing_retries_exhausted", { code: "PGRST303", retries: attempt });
       return result;
     }
-    console.warn("Analytics read rejected by JWT timing validation; retrying", { code: "PGRST303", retry: attempt + 1 });
+    log("warn", "analytics.jwt_timing_retry", { code: "PGRST303", retry: attempt + 1 });
     await new Promise<void>((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
   }
 }

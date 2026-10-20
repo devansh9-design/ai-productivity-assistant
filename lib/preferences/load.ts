@@ -8,6 +8,7 @@ import {
   type PlanningPreferenceValues,
 } from "@/lib/preferences/preferences";
 import type { PlanningPreferences } from "@/lib/types";
+import { log } from "@/lib/log";
 
 export interface Personalization {
   preferences: PlanningPreferenceValues;
@@ -46,9 +47,9 @@ export async function loadPersonalization(
       .returns<InsightSession[]>(),
   ]);
 
-  if (preferencesResult.error) console.error("Could not load planning preferences:", preferencesResult.error.message);
-  if (tasksResult.error) console.error("Could not load task history for personalization:", tasksResult.error.message);
-  if (sessionsResult.error) console.error("Could not load task sessions for personalization:", sessionsResult.error.message);
+  if (preferencesResult.error) log("error", "preferences.load_failed", { message: preferencesResult.error.message });
+  if (tasksResult.error) log("error", "preferences.task_history_failed", { message: tasksResult.error.message });
+  if (sessionsResult.error) log("error", "preferences.task_sessions_failed", { message: sessionsResult.error.message });
 
   const row = preferencesResult.error ? null : preferencesResult.data;
   const preferences: PlanningPreferenceValues = row

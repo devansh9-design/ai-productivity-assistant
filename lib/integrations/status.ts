@@ -12,6 +12,7 @@ import {
   type CalendarOperation,
   type CalendarRead,
 } from "@/lib/integrations/calendar";
+import { errorFields, log } from "@/lib/log";
 
 const PROVIDER = "google_calendar";
 
@@ -62,9 +63,9 @@ async function upsertStatus(supabase: SupabaseClient, userId: string, fields: Re
 async function record(supabase: SupabaseClient, userId: string, fields: Record<string, unknown>) {
   try {
     const error = await upsertStatus(supabase, userId, fields);
-    if (error) console.error("Could not record Google Calendar status:", error.message);
+    if (error) log("error", "calendar.status_record_failed", { message: error.message });
   } catch (error) {
-    console.error("Could not record Google Calendar status:", error instanceof Error ? error.message : error);
+    log("error", "calendar.status_record_failed", errorFields(error));
   }
 }
 

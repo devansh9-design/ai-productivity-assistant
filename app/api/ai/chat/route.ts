@@ -4,6 +4,8 @@ import { generateGeminiJson } from "@/lib/gemini";
 import { PROPOSAL_TYPES, type PlanningProposal } from "@/lib/ai/proposal";
 import { validatePlanningProposal } from "@/lib/ai/validate-proposal";
 import { requireUser } from "@/lib/auth/require-user";
+import { AI_REQUESTS_PER_DAY, AI_REQUESTS_PER_MINUTE, claimAIRequest, describeWait } from "@/lib/ai/rate-limit";
+import { errorFields, log } from "@/lib/log";
 
 export const runtime = "nodejs";
 
@@ -41,6 +43,23 @@ export async function POST(request: NextRequest) {
 
     if (!message) return NextResponse.json({ error: "message is required" }, { status: 400 });
     if (message.length > 4000) return NextResponse.json({ error: "message is too long" }, { status: 400 });
+
+    // Sign-in and the rate limit are checked before any Gemini call.
+    const { supabase, user } = await requireUser();
+    let claim;
+    try {
+      claim = await claimAIRequest(supabase);
+    } catch (limitError) {
+      log("error", "ai.rate_limit_check_failed", { userId: user.id, ...errorFields(limitError) });
+      return NextResponse.json({ error: "The AI assistant is temporarily unavailable. Please try again shortly." }, { status: 503 });
+    }
+    if (!claim.allowed) {
+      log("warn", "ai.rate_limited", { userId: user.id, retryAfterSeconds: claim.retryAfterSeconds });
+      return NextResponse.json(
+        { error: `You've reached the AI assistant's limit of ${AI_REQUESTS_PER_MINUTE} requests a minute and ${AI_REQUESTS_PER_DAY} a day. Try again in ${describeWait(claim.retryAfterSeconds)}.` },
+        { status: 429, headers: { "Retry-After": String(claim.retryAfterSeconds) } },
+      );
+    }
 
     const context = await getAIPlanningContext();
 
@@ -85,7 +104,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: "AI returned an invalid planning proposal.", details: validation.error }, { status: 422 });
     }
 
-    const { supabase, user } = await requireUser();
     let safeProposal = validation.data as PlanningProposal;
 
     // Defense in depth: even if the model ignores the prompt, never return a
@@ -134,7 +152,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (conversationError || !conversation) {
-      console.error("AI conversation persistence error:", conversationError);
+      log("error", "ai.conversation_save_failed", { userId: user.id, message: conversationError?.message });
       return NextResponse.json({ error: "AI proposal was generated, but could not be saved. Please try again." }, { status: 500 });
     }
 
@@ -146,7 +164,7 @@ export async function POST(request: NextRequest) {
       requires_confirmation: true,
     });
   } catch (error) {
-    console.error("AI chat error:", error);
+    log("error", "ai.chat_failed", errorFields(error));
 
     if (error instanceof Error && "status" in error && typeof (error as Error & { status?: unknown }).status === "number") {
       const status = (error as Error & { status: number }).status;
