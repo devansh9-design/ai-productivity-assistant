@@ -12,6 +12,8 @@ function makeTask(overrides: Partial<Task>): Task {
     goal_id: null,
     project_id: null,
     milestone_id: null,
+    routine_id: null,
+    occurrence_date: null,
     title: "Task",
     description: null,
     category: null,
