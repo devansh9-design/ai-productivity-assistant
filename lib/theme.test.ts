@@ -1,30 +1,38 @@
 import { describe, it, expect } from "vitest";
-import { THEME_INIT_SCRIPT, isThemePreference } from "@/lib/theme";
+import { SIDEBAR_COLLAPSED_CLASS, SIDEBAR_STORAGE_KEY, THEME_INIT_SCRIPT, THEME_STORAGE_KEY, isThemePreference } from "@/lib/theme";
 
-/** Runs the <head> script against a fake browser and reports whether it chose dark. */
-function runInit(stored: string | null, systemDark: boolean, storageThrows = false): boolean {
+/** Runs the <head> script against a fake browser and returns the classes it set on <html>. */
+function runInit(stored: Record<string, string | null>, systemDark: boolean, storageThrows = false): Set<string> {
   const classes = new Set<string>();
   const window = { matchMedia: (query: string) => ({ matches: query.includes("dark") && systemDark }) };
-  const localStorage = { getItem: () => { if (storageThrows) throw new Error("blocked"); return stored; } };
+  const localStorage = { getItem: (key: string) => { if (storageThrows) throw new Error("blocked"); return stored[key] ?? null; } };
   const document = { documentElement: { classList: { toggle: (name: string, on: boolean) => { if (on) classes.add(name); else classes.delete(name); } } } };
   new Function("window", "localStorage", "document", THEME_INIT_SCRIPT)(window, localStorage, document);
-  return classes.has("dark");
+  return classes;
 }
 
+const theme = (value: string | null) => ({ [THEME_STORAGE_KEY]: value });
+
 describe("THEME_INIT_SCRIPT", () => {
-  it("uses the saved choice over the device setting", () => {
-    expect(runInit("dark", false)).toBe(true);
-    expect(runInit("light", true)).toBe(false);
+  it("uses the saved theme over the device setting", () => {
+    expect(runInit(theme("dark"), false).has("dark")).toBe(true);
+    expect(runInit(theme("light"), true).has("dark")).toBe(false);
   });
 
-  it("follows the device when nothing valid is saved", () => {
-    expect(runInit(null, true)).toBe(true);
-    expect(runInit(null, false)).toBe(false);
-    expect(runInit("purple", true)).toBe(true);
+  it("follows the device when no valid theme is saved", () => {
+    expect(runInit(theme(null), true).has("dark")).toBe(true);
+    expect(runInit(theme(null), false).has("dark")).toBe(false);
+    expect(runInit(theme("purple"), true).has("dark")).toBe(true);
+  });
+
+  it("restores a collapsed sidebar, and shows it by default", () => {
+    expect(runInit({ [SIDEBAR_STORAGE_KEY]: "collapsed" }, false).has(SIDEBAR_COLLAPSED_CLASS)).toBe(true);
+    expect(runInit({}, false).has(SIDEBAR_COLLAPSED_CLASS)).toBe(false);
+    expect(runInit({ [SIDEBAR_STORAGE_KEY]: "open" }, false).has(SIDEBAR_COLLAPSED_CLASS)).toBe(false);
   });
 
   it("never breaks the page when storage is blocked", () => {
-    expect(() => runInit(null, true, true)).not.toThrow();
+    expect(() => runInit({}, true, true)).not.toThrow();
   });
 });
 

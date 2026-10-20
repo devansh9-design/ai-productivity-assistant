@@ -28,6 +28,22 @@ button, input, select, textarea { font: inherit; }
 :focus-visible { outline: 3px solid #4f46e5; outline-offset: 2px; }
 
 /*
+ * Desktop sidebar collapse (☰). The class is set on <html> before paint
+ * (lib/theme.ts), so a hidden sidebar never flashes open on load. On phones
+ * the sidebar is a drawer instead and none of this applies.
+ */
+@media (min-width: 768px) {
+  .app-sidebar, .app-main, .app-beside-sidebar { transition: transform 200ms ease, margin-left 200ms ease, left 200ms ease; }
+  .sidebar-collapsed .app-sidebar { transform: translateX(-100%); }
+  .sidebar-collapsed .app-main { margin-left: 0; padding-top: 4.5rem; }
+  .sidebar-collapsed .app-beside-sidebar { left: 0; }
+  .sidebar-collapsed .app-sidebar-reopen { display: inline-flex; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-sidebar, .app-main, .app-beside-sidebar { transition: none; }
+}
+
+/*
  * Shared building blocks, so every form field, button and card looks and
  * behaves the same. Add spacing and sizes next to them at the call site
  * (for example "input mt-1" or "card p-5").

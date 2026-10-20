@@ -14,7 +14,7 @@ export default async function ProtectedLayout({ children }: Readonly<{ children:
       <TimezoneSync />
       <ConnectionStatus />
       <AppSidebar email={user.email ?? "Signed in"} />
-      <main className="px-4 py-8 md:ml-64 md:px-8 md:py-10">{children}</main>
+      <main className="app-main px-4 py-8 md:ml-64 md:px-8 md:py-10">{children}</main>
     </div>
   );
 }
