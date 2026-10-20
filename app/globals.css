@@ -3,8 +3,27 @@
 @tailwind utilities;
 
 :root { color-scheme: light; }
+:root.dark { color-scheme: dark; }
 * { box-sizing: border-box; }
-body { margin: 0; background: #f8fafc; color: #172033; -webkit-font-smoothing: antialiased; }
+body { margin: 0; background: rgb(var(--slate-50)); color: rgb(var(--slate-900)); -webkit-font-smoothing: antialiased; }
+
+/*
+ * Dark-theme fix-ups for the few places where a mirrored colour would be
+ * wrong (see tailwind.config.ts): white text on solid buttons stays white,
+ * solid hover/pressed backgrounds stay mid-tone instead of turning pale, and
+ * the menu backdrop stays dark.
+ */
+.dark .text-white,
+.dark .btn-primary { color: rgb(255 255 255); }
+.dark .hover\:bg-indigo-700:hover,
+.dark .btn-primary:hover { background-color: rgb(var(--indigo-500)); }
+.dark .active\:bg-indigo-800:active,
+.dark .btn-primary:active { background-color: rgb(var(--indigo-400)); }
+.dark .hover\:bg-emerald-700:hover { background-color: rgb(var(--emerald-500)); }
+.dark .bg-slate-950\/40 { background-color: rgb(0 0 0 / 0.6); }
+/* Mid accent shades stay solid for buttons; as small text they need to be lighter on dark. */
+.dark .text-indigo-600 { color: rgb(122 162 247); } /* navy theme blue */
+.dark .text-rose-600 { color: rgb(247 118 142); } /* navy theme red */
 button, input, select, textarea { font: inherit; }
 :focus-visible { outline: 3px solid #4f46e5; outline-offset: 2px; }
 

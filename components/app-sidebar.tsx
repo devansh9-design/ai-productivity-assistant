@@ -8,6 +8,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { ThemeSwitch } from "@/components/theme-switch";
 
 const navigation: Array<{ href: string; label: string; icon: LucideIcon }> = [
   { href: "/today", label: "Today", icon: CalendarCheck },
@@ -74,6 +75,7 @@ function SignOutButton() {
 function Account({ email }: { email: string }) {
   return (
     <div className="mt-auto border-t border-slate-200 pt-4">
+      <div className="mb-3"><ThemeSwitch /></div>
       <p className="mb-2 truncate px-3 text-xs text-slate-500" title={email}>{email}</p>
       <SignOutButton />
     </div>
