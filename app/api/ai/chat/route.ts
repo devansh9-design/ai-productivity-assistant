@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAIPlanningContext } from "@/lib/ai/context";
 import { generateGeminiJson } from "@/lib/gemini";
 import { PROPOSAL_TYPES, type PlanningProposal } from "@/lib/ai/proposal";
-import { validatePlanningProposal } from "@/lib/ai/validate-proposal";
+import { dropNullItemFields, validatePlanningProposal } from "@/lib/ai/validate-proposal";
 import { requireUser } from "@/lib/auth/require-user";
 import { AI_REQUESTS_PER_DAY, AI_REQUESTS_PER_MINUTE, claimAIRequest, describeWait } from "@/lib/ai/rate-limit";
 import { errorFields, log } from "@/lib/log";
@@ -17,19 +17,23 @@ const proposalSchema = {
     type: { type: "string", enum: [...PROPOSAL_TYPES] },
     summary: { type: "string" },
     reason: { type: "string" },
+    // Every field is required (null when it does not apply): with optional
+    // fields, fast models often left out the times and the proposal failed
+    // validation. Nulls are removed again before validation.
     items: {
       type: "array",
       items: {
         type: "object",
         properties: {
-          task_id: { type: "string" },
+          task_id: { type: "string", nullable: true },
           title: { type: "string" },
+          start_time: { type: "string", nullable: true, description: "HH:mm local time; null only for non-schedule proposals" },
+          end_time: { type: "string", nullable: true, description: "HH:mm local time; null only for non-schedule proposals" },
+          estimated_minutes: { type: "integer", nullable: true },
           reason: { type: "string" },
-          start_time: { type: "string" },
-          end_time: { type: "string" },
-          estimated_minutes: { type: "integer" },
         },
-        required: ["reason"],
+        required: ["task_id", "title", "start_time", "end_time", "estimated_minutes", "reason"],
+        propertyOrdering: ["task_id", "title", "start_time", "end_time", "estimated_minutes", "reason"],
       },
     },
   },
@@ -98,7 +102,7 @@ export async function POST(request: NextRequest) {
     ].join("\n");
 
     const proposal = await generateGeminiJson({ prompt, responseSchema: proposalSchema });
-    const validation = validatePlanningProposal(proposal);
+    const validation = validatePlanningProposal(dropNullItemFields(proposal));
 
     if (!validation.ok) {
       return NextResponse.json({ ok: false, error: "AI returned an invalid planning proposal.", details: validation.error }, { status: 422 });

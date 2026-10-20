@@ -25,7 +25,7 @@ export function RecentReflections({
           {entries.map((entry) => {
             const checkin = checkinsByDate.get(entry.entry_date);
             return (
-              <article key={entry.id} className="rounded-2xl border border-slate-200 bg-white p-5">
+              <article key={entry.id} className="card p-5">
                 <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-slate-700">
                   <span>{entry.entry_date}</span>
                   {checkin?.mood && <span aria-label={`Mood ${checkin.mood} of 5`}>{MOOD_LABELS[checkin.mood]}</span>}

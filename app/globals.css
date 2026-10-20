@@ -4,6 +4,36 @@
 
 :root { color-scheme: light; }
 * { box-sizing: border-box; }
-body { margin: 0; background: #f8fafc; color: #172033; }
-button, input { font: inherit; }
+body { margin: 0; background: #f8fafc; color: #172033; -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; }
 :focus-visible { outline: 3px solid #4f46e5; outline-offset: 2px; }
+
+/*
+ * Shared building blocks, so every form field, button and card looks and
+ * behaves the same. Add spacing and sizes next to them at the call site
+ * (for example "input mt-1" or "card p-5").
+ */
+@layer components {
+  .input {
+    @apply block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm transition-colors
+      placeholder:text-slate-400 hover:border-slate-400
+      focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200
+      disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors
+      hover:bg-indigo-700 active:bg-indigo-800
+      disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition-colors
+      hover:bg-slate-50 active:bg-slate-100
+      disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .card {
+    @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
+  }
+}

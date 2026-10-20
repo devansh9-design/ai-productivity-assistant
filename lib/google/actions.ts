@@ -8,7 +8,6 @@ import {
   buildGoogleAuthUrl,
   deleteGoogleCredentials,
   getValidAccessToken,
-  isGoogleCalendarConnected,
   revokeGoogleToken,
 } from "@/lib/google/oauth";
 import { clearCalendarReconnect } from "@/lib/integrations/status";
@@ -56,11 +55,3 @@ export async function disconnectGoogleCalendar(): Promise<void> {
   revalidatePath("/today");
 }
 
-// ---------------------------------------------------------------------------
-// Connection status check (for Settings UI)
-// ---------------------------------------------------------------------------
-
-export async function getGoogleCalendarStatus(): Promise<boolean> {
-  const { user } = await requireUser();
-  return isGoogleCalendarConnected(user.id);
-}

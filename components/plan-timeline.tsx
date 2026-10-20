@@ -122,7 +122,7 @@ export function PlanTimeline({
   const badge = STATUS_LABEL[plan.status] ?? STATUS_LABEL.draft;
 
   return (
-    <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5">
+    <div className="mt-4 card p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span

@@ -17,3 +17,6 @@ coverage/
 
 # Graphify generated repository graph
 graphify-out/
+
+# Agent worktrees and local launch config
+.claude/

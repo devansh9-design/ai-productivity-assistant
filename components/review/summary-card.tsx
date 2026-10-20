@@ -5,7 +5,7 @@ import type { WeekFacts } from "@/lib/review/facts";
 import type { SavedReview } from "@/lib/review/load";
 import { generateWeeklySummary } from "@/lib/review/actions";
 
-const BUTTON = "rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700";
+const BUTTON = "btn-primary";
 
 export function SummaryCard({ week, saved, facts, generatedLabel }: { week: string; saved: SavedReview | null; facts: WeekFacts; generatedLabel: string | null }) {
   return (

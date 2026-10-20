@@ -1,7 +1,6 @@
 import "server-only";
 
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { getUtcBoundsForLocalDate } from "@/lib/google/calendar";
 import { GoogleRequestError } from "@/lib/google/errors";
 
 const GOOGLE_CALENDAR_API = "https://www.googleapis.com/calendar/v3";
@@ -38,16 +37,6 @@ export interface PlannerEventInput {
 
 interface GoogleEventResource {
   id?: string;
-}
-
-interface GoogleEventListResource {
-  items?: Array<{
-    id?: string;
-    extendedProperties?: {
-      private?: Record<string, string>;
-    };
-  }>;
-  nextPageToken?: string;
 }
 
 async function googleRequest<T>(
@@ -243,76 +232,6 @@ export async function getOrCreatePlannerCalendar(
   return calendarId;
 }
 
-/**
- * Deletes only events previously created by this application for one local plan date.
- *
- * This identifies events by the private extended property written by
- * createPlannerEvent, so normal Google Calendar events are never touched.
- * It also cleans up orphaned events from a previous partial publish.
- */
-export async function deletePlannerEventsForDate(
-  accessToken: string,
-  calendarId: string,
-  planDate: string,
-  timeZone: string,
-): Promise<void> {
-  const { timeMin, timeMax } = getUtcBoundsForLocalDate(planDate, timeZone);
-  let pageToken: string | undefined;
-  const eventIds: string[] = [];
-
-  do {
-    const params = new URLSearchParams({
-      timeMin,
-      timeMax,
-      singleEvents: "true",
-      showDeleted: "false",
-      maxResults: "2500",
-    });
-    if (pageToken) params.set("pageToken", pageToken);
-
-    const result = await googleRequest<GoogleEventListResource>(
-      accessToken,
-      `/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`,
-    );
-
-    if (result.status !== 200) {
-      const apiError = result.body as GoogleApiError | null;
-      throw new GoogleRequestError(
-        apiError?.error?.message ??
-          `Could not list AI Planner events (${result.status}).`,
-        result.status,
-      );
-    }
-
-    for (const event of result.body?.items ?? []) {
-      if (
-        event.id &&
-        event.extendedProperties?.private?.app === "ai-productivity-assistant"
-      ) {
-        eventIds.push(event.id);
-      }
-    }
-
-    pageToken = result.body?.nextPageToken;
-  } while (pageToken);
-
-  for (const eventId of eventIds) {
-    const result = await googleRequest<unknown>(
-      accessToken,
-      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
-      { method: "DELETE" },
-    );
-
-    if (result.status !== 204 && result.status !== 200 && result.status !== 404 && result.status !== 410) {
-      const apiError = result.body as GoogleApiError | null;
-      throw new GoogleRequestError(
-        apiError?.error?.message ??
-          `Could not delete AI Planner event ${eventId} (${result.status}).`,
-        result.status,
-      );
-    }
-  }
-}
 /**
  * Creates one timed Google Calendar event for a confirmed plan block.
  * Only callers that have already filtered plan blocks to task work should use this.

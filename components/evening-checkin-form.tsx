@@ -16,7 +16,7 @@ export function EveningCheckinForm({
   const alreadyCheckedIn = !!existingCheckin || !!existingReflection;
 
   return (
-    <details className="mt-8 rounded-2xl border border-slate-200 bg-white p-6" open={!alreadyCheckedIn}>
+    <details className="mt-8 card p-6" open={!alreadyCheckedIn}>
       <summary className="cursor-pointer text-lg font-semibold text-slate-900">
         Evening check-in {alreadyCheckedIn && <span className="ml-2 text-sm font-normal text-emerald-700">Saved for today ✓</span>}
       </summary>
@@ -48,7 +48,7 @@ export function EveningCheckinForm({
         <label className="block text-sm font-medium text-slate-800" htmlFor="checkin-energy">
           Energy level
           <select
-            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+            className="input mt-1"
             id="checkin-energy"
             name="energy_level"
             defaultValue={existingCheckin?.energy_level ?? ""}
@@ -63,7 +63,7 @@ export function EveningCheckinForm({
         <label className="block text-sm font-medium text-slate-800" htmlFor="checkin-distractions">
           Distractions
           <input
-            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+            className="input mt-1"
             id="checkin-distractions"
             name="distractions"
             defaultValue={existingCheckin?.distractions ?? ""}
@@ -75,7 +75,7 @@ export function EveningCheckinForm({
         <label className="block text-sm font-medium text-slate-800" htmlFor="checkin-wins">
           Wins
           <input
-            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+            className="input mt-1"
             id="checkin-wins"
             name="wins"
             defaultValue={existingCheckin?.wins ?? ""}
@@ -87,7 +87,7 @@ export function EveningCheckinForm({
         <label className="block text-sm font-medium text-slate-800" htmlFor="checkin-lesson">
           Lesson
           <input
-            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+            className="input mt-1"
             id="checkin-lesson"
             name="lesson"
             defaultValue={existingCheckin?.lesson ?? ""}
@@ -99,7 +99,7 @@ export function EveningCheckinForm({
         <label className="block text-sm font-medium text-slate-800 sm:col-span-2" htmlFor="checkin-reflection">
           Reflection
           <textarea
-            className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+            className="input mt-1"
             id="checkin-reflection"
             name="reflection"
             rows={3}
@@ -111,7 +111,7 @@ export function EveningCheckinForm({
         </label>
 
         <div className="sm:col-span-2">
-          <ActionSubmitButton className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+          <ActionSubmitButton className="btn-primary">
             {alreadyCheckedIn ? "Update check-in" : "Save check-in"}
           </ActionSubmitButton>
         </div>

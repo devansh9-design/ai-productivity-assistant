@@ -26,13 +26,13 @@ export default async function GoalsPage() {
         Goals are the top of the hierarchy. Projects, milestones, and tasks all roll up to one.
       </p>
 
-      <ActionForm action={createGoal} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+      <ActionForm action={createGoal} className="mt-8 card p-6">
         <h2 className="text-lg font-semibold text-slate-900">New goal</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="block text-sm font-medium text-slate-800 sm:col-span-2" htmlFor="goal-title">
             Title
             <input
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="goal-title"
               name="title"
               required
@@ -42,7 +42,7 @@ export default async function GoalsPage() {
           <label className="block text-sm font-medium text-slate-800 sm:col-span-2" htmlFor="goal-description">
             Description
             <textarea
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="goal-description"
               name="description"
               rows={2}
@@ -51,7 +51,7 @@ export default async function GoalsPage() {
         </div>
         <ActionSubmitButton
           pendingLabel="Adding…"
-          className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+          className="mt-4 btn-primary"
         >
           Add goal
         </ActionSubmitButton>
@@ -72,7 +72,7 @@ export default async function GoalsPage() {
         )}
 
         {goals?.map((goal) => (
-          <article key={goal.id} className="rounded-2xl border border-slate-200 bg-white p-5">
+          <article key={goal.id} className="card p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">

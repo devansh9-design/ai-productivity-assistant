@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validatePlanningProposal } from "./validate-proposal";
+import { dropNullItemFields, validatePlanningProposal } from "./validate-proposal";
 
 const valid = {
   type: "suggest_schedule",
@@ -60,5 +60,29 @@ describe("validatePlanningProposal", () => {
         items: Array.from({ length: 51 }, () => valid.items[0]),
       }).ok,
     ).toBe(false);
+  });
+});
+
+describe("dropNullItemFields", () => {
+  it("removes null item fields so a schedule item validates and an informational item has no times", () => {
+    const taskId = "11111111-1111-4111-8111-111111111111";
+    const cleaned = dropNullItemFields({
+      type: "suggest_schedule", summary: "Plan", reason: "Fits",
+      items: [{ task_id: taskId, title: "A", start_time: "13:30", end_time: "14:00", estimated_minutes: 30, reason: "Due" }],
+    });
+    expect(validatePlanningProposal(cleaned).ok).toBe(true);
+
+    const info = dropNullItemFields({
+      type: "summarize_day", summary: "Why", reason: "Because",
+      items: [{ task_id: null, title: "A", start_time: null, end_time: null, estimated_minutes: null, reason: "Urgent" }],
+    }) as { items: Array<Record<string, unknown>> };
+    expect(info.items[0]).toEqual({ title: "A", reason: "Urgent" });
+    expect(validatePlanningProposal(info).ok).toBe(true);
+  });
+
+  it("leaves anything that is not a proposal for the validator to reject", () => {
+    expect(dropNullItemFields(null)).toBeNull();
+    expect(dropNullItemFields("text")).toBe("text");
+    expect(validatePlanningProposal(dropNullItemFields({ type: "suggest_schedule", items: "x" })).ok).toBe(false);
   });
 });

@@ -18,10 +18,10 @@ export default function AppError({ error, reset }: { error: Error & { digest?: s
       {error.digest && <p className="mt-3 text-xs text-slate-500">Reference: <code>{error.digest}</code></p>}
       <div className="mt-5 flex flex-wrap gap-3">
         <button type="button" onClick={reset}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+          className="btn-primary">
           Try again
         </button>
-        <Link href="/today" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50">
+        <Link href="/today" className="btn-secondary">
           Go to Today
         </Link>
       </div>

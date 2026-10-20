@@ -27,13 +27,13 @@ export default async function ProjectsPage() {
         Projects sit under a goal and group the milestones and tasks that move it forward.
       </p>
 
-      <ActionForm action={createProject} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+      <ActionForm action={createProject} className="mt-8 card p-6">
         <h2 className="text-lg font-semibold text-slate-900">New project</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="block text-sm font-medium text-slate-800 sm:col-span-2" htmlFor="project-title">
             Title
             <input
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="project-title"
               name="title"
               required
@@ -43,7 +43,7 @@ export default async function ProjectsPage() {
           <label className="block text-sm font-medium text-slate-800" htmlFor="project-goal">
             Goal
             <select
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="project-goal"
               name="goal_id"
               defaultValue=""
@@ -59,7 +59,7 @@ export default async function ProjectsPage() {
           <label className="block text-sm font-medium text-slate-800 sm:col-span-2" htmlFor="project-description">
             Description
             <textarea
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="project-description"
               name="description"
               rows={2}
@@ -68,7 +68,7 @@ export default async function ProjectsPage() {
         </div>
         <ActionSubmitButton
           pendingLabel="Adding…"
-          className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+          className="mt-4 btn-primary"
         >
           Add project
         </ActionSubmitButton>
@@ -89,7 +89,7 @@ export default async function ProjectsPage() {
         )}
 
         {projects?.map((project) => (
-          <article key={project.id} className="rounded-2xl border border-slate-200 bg-white p-5">
+          <article key={project.id} className="card p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="flex flex-wrap items-center gap-2">

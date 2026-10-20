@@ -6,7 +6,7 @@ const LABELS: Record<RangePreset, string> = { "7d": "Last 7 days", week: "This w
 /** Plain links and a GET form, so the range lives in the URL and works without client JavaScript. */
 export function RangeSelector({ range, today }: { range: AnalyticsRange; today: string }) {
   return (
-    <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+    <div className="mt-6 card p-5">
       <nav aria-label="Date range" className="flex flex-wrap gap-2">
         {RANGE_PRESETS.map((preset) => {
           const active = range.preset === preset;

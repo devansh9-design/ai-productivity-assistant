@@ -1,5 +1,6 @@
 import type { AnalyticsRange } from "@/lib/analytics/range";
 import { addDaysToISODate, getTodayISODate } from "@/lib/tasks/timezone";
+import { minutesFromHHMM } from "@/lib/time";
 
 /** A timer session longer than this was almost certainly left running by mistake. */
 export const MAX_SESSION_MINUTES = 12 * 60;
@@ -119,8 +120,7 @@ export function sessionValidity(session: AnalyticsSession): SessionValidity {
 }
 
 function minutesOf(time: string): number {
-  const match = /^(\d{2}):(\d{2})/.exec(time);
-  return match ? Number(match[1]) * 60 + Number(match[2]) : 0;
+  return minutesFromHHMM(time) ?? 0;
 }
 
 /** Case- and whitespace-insensitive grouping key. */

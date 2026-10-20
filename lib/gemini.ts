@@ -2,17 +2,24 @@ import "server-only";
 
 import { log } from "@/lib/log";
 
-// Prefer the newest stable Flash model, but keep lower-cost/older stable
-// models available as capacity fallbacks. Gemini can return 503 during
-// temporary capacity spikes even when the API key and request are valid.
-const GEMINI_MODELS = [
-  "gemini-3.8-flash",
-  "gemini-3.7-flash",
-  "gemini-3.6-flash",
-  "gemini-3.5-flash",
-  "gemini-3.5-flash-lite",
-  "gemini-3.1-flash-lite",
+/**
+ * Tried in order until one answers. Measured on 2026-10-20 with the planning
+ * prompt (about 900 tokens): 3.5 Flash-Lite answered in 2-4s with valid plans
+ * once every schema field was required; 3.5 and 3.6 Flash took 4-14s and
+ * sometimes returned 503 ("high demand"). 3.8 and 3.7 Flash took 80-106s, and
+ * 3.1 Flash-Lite kept generating until it hit the output limit, so they are
+ * not used.
+ */
+export const GEMINI_MODELS = [
+  { name: "gemini-3.5-flash-lite", config: { temperature: 0.2 } },
+  { name: "gemini-3.5-flash", config: { thinkingConfig: { thinkingLevel: "low" } } },
+  { name: "gemini-3.6-flash", config: { thinkingConfig: { thinkingLevel: "low" } } },
 ] as const;
+
+/** A model that has not answered by then is abandoned for the next one. */
+export const MODEL_TIMEOUT_MS = 20_000;
+/** Bounds a runaway answer; real proposals and summaries use well under 1,000 tokens. */
+const MAX_OUTPUT_TOKENS = 4096;
 
 let apiKey: string | undefined;
 
@@ -33,45 +40,19 @@ export type GeminiGenerateOptions = {
   responseSchema: Record<string, unknown>;
 };
 
+/** Worth trying the next model: unavailable to this project (404), timed out, rate-limited or a server error. */
 function shouldTryAnotherModel(status: number): boolean {
-  // 404 can happen when a model is unavailable to a particular API project.
-  // 429/5xx are transient capacity/quota/server conditions.
-  return (
-    status === 404 ||
-    status === 408 ||
-    status === 429 ||
-    status === 500 ||
-    status === 502 ||
-    status === 503 ||
-    status === 504
-  );
+  return status === 404 || status === 408 || status === 429 || status >= 500;
 }
 
+/** One request to one model; a timeout or network failure is reported as status 408 or 503. */
 async function requestModel(
-  model: string,
+  model: (typeof GEMINI_MODELS)[number],
   prompt: string,
   responseSchema: Record<string, unknown>,
-): Promise<Response> {
-  const isGemini38 = model === "gemini-3.8-flash";
-
-  // Retry a transient failure once before moving to the next model.
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const generationConfig: Record<string, unknown> = {
-      responseMimeType: "application/json",
-      responseSchema,
-    };
-
-    // Gemini 3.8 uses thinkingLevel instead of the legacy temperature
-    // sampling control. Other stable Flash fallbacks can use temperature.
-    if (!isGemini38) {
-      generationConfig.temperature = 0.2;
-    } else {
-      generationConfig.thinkingConfig = { thinkingLevel: "low" };
-    }
-
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-
-    const response = await fetch(url, {
+): Promise<{ status: number; text?: string; body?: string }> {
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model.name}:generateContent`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -79,27 +60,36 @@ async function requestModel(
       },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig,
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema,
+          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          ...model.config,
+        },
       }),
       cache: "no-store",
+      signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
     });
+    if (!response.ok) return { status: response.status, body: await response.text().catch(() => "") };
 
-    if (response.ok) return response;
-
-    if (!shouldTryAnotherModel(response.status) || attempt === 1) {
-      return response;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 750 * (attempt + 1)));
+    const data = (await response.json()) as {
+      candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    const candidate = data.candidates?.[0];
+    // A cut-off answer is invalid JSON; treat it like an error so the next model is tried.
+    if (candidate?.finishReason === "MAX_TOKENS") return { status: 502, body: "Answer exceeded the output limit." };
+    return { status: 200, text: candidate?.content?.parts?.map((part) => part.text ?? "").join("").trim() };
+  } catch (error) {
+    const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    return { status: timedOut ? 408 : 503, body: error instanceof Error ? error.message : "Request failed." };
   }
-
-  throw new Error("Gemini request failed unexpectedly.");
 }
 
 export async function generateGeminiJson({
   prompt,
   responseSchema,
 }: GeminiGenerateOptions): Promise<unknown> {
+  getGeminiApiKey();
   let lastStatus = 503;
   let lastBody = "";
   const started = Date.now();
@@ -107,38 +97,28 @@ export async function generateGeminiJson({
 
   for (const model of GEMINI_MODELS) {
     const modelStarted = Date.now();
-    const response = await requestModel(model, prompt, responseSchema);
+    const result = await requestModel(model, prompt, responseSchema);
 
-    if (response.ok) {
+    if (result.status === 200) {
       // Which model answered and how long it took, including any fallbacks before it.
-      log("info", "ai.gemini_answered", { model, ms: Date.now() - started, modelMs: Date.now() - modelStarted, failedModels });
-      const data = (await response.json()) as {
-        candidates?: Array<{
-          content?: { parts?: Array<{ text?: string }> };
-        }>;
-      };
+      log("info", "ai.gemini_answered", { model: model.name, ms: Date.now() - started, modelMs: Date.now() - modelStarted, failedModels });
 
-      const text = data.candidates?.[0]?.content?.parts
-        ?.map((part) => part.text ?? "")
-        .join("")
-        .trim();
-
-      if (!text) {
+      if (!result.text) {
         throw new Error("Gemini returned an empty response.");
       }
 
       try {
-        return JSON.parse(text);
+        return JSON.parse(result.text);
       } catch {
         throw new Error("Gemini returned invalid JSON.");
       }
     }
 
-    lastStatus = response.status;
-    lastBody = await response.text().catch(() => "");
-    failedModels.push({ model, status: response.status, ms: Date.now() - modelStarted });
+    lastStatus = result.status;
+    lastBody = result.body ?? "";
+    failedModels.push({ model: model.name, status: result.status, ms: Date.now() - modelStarted });
 
-    if (!shouldTryAnotherModel(response.status)) break;
+    if (!shouldTryAnotherModel(result.status)) break;
   }
 
   log("error", "ai.gemini_failed", { ms: Date.now() - started, failedModels });
