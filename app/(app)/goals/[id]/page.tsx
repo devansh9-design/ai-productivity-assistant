@@ -11,6 +11,7 @@ import { ActionForm } from "@/components/action-form";
 import { ActionSubmitButton } from "@/components/action-submit-button";
 import { CategoryBadge, GoalFields } from "@/components/goals/goal-fields";
 import { DeleteGoalButton } from "@/components/goals/delete-goal-button";
+import { AIRoadmapBuilder } from "@/components/goals/ai-roadmap-builder";
 import { MetricsSection, RoadmapSection, RoutinesSection, TargetsSection } from "@/components/goals/sections";
 import { StatusBadge } from "@/components/status-badge";
 
@@ -67,6 +68,14 @@ export default async function GoalPage({ params }: { params: Promise<{ id: strin
       </details>
 
       <div className="mt-8 space-y-6">
+        {goal.status === "active" && (
+          <AIRoadmapBuilder
+            goal={{ id: goal.id, title: goal.title, start_date: goal.start_date, target_date: goal.target_date, weekly_hours: goal.weekly_hours, level: goal.level }}
+            existingMetrics={metrics.map((metric) => metric.name)}
+            hasRoadmap={phases.length > 0 || targets.length > 0 || routines.length > 0}
+            today={today}
+          />
+        )}
         <MetricsSection goal={goal} metrics={metrics} />
         <RoadmapSection goal={goal} phases={phases} today={today} />
         <TargetsSection goal={goal} targets={targets} metrics={metrics} today={today} />
