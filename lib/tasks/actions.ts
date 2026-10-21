@@ -110,12 +110,20 @@ export async function updateTaskSchedulingMetadata(formData: FormData) {
   revalidatePath("/today");
 }
 
+/**
+ * Deletes a task. A task created by a routine is skipped instead: deleting
+ * today's session would only bring it back on the next page load, and keeping
+ * it records that the session didn't happen.
+ */
 export async function deleteTask(formData: FormData) {
   const { supabase, user } = await requireUser();
   const id = String(formData.get("id") ?? "");
   if (!id) throw new Error("Missing task id.");
 
-  const { error } = await supabase.from("tasks").delete().eq("id", id).eq("user_id", user.id);
+  const { data: task } = await supabase.from("tasks").select("routine_id").eq("id", id).eq("user_id", user.id).maybeSingle<{ routine_id: string | null }>();
+  const { error } = task?.routine_id
+    ? await supabase.from("tasks").update({ status: "skipped", status_reason: "Skipped this session of the routine." }).eq("id", id).eq("user_id", user.id)
+    : await supabase.from("tasks").delete().eq("id", id).eq("user_id", user.id);
   if (error) throw new Error(error.message);
 
   revalidatePath("/tasks");

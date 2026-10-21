@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { StatusBadge, PriorityBadge, EmptyState } from "@/components/status-badge";
+import { StatusBadge, PriorityBadge, EmptyState, RoutineBadge } from "@/components/status-badge";
 import { TaskActionForm } from "@/components/task-action-form";
 import { TaskTimer } from "@/components/task-timer";
 import { EveningCheckinForm } from "@/components/evening-checkin-form";
@@ -22,6 +22,7 @@ import { mondayOf } from "@/lib/review/week";
 import { WeekPrioritiesCard } from "@/components/review/week-priorities-card";
 import type { Checkin, DailyPlan, FixedCommitment, JournalEntry, PlanBlock, PlanUnscheduledTask, Task, TaskSession } from "@/lib/types";
 import { errorFields, log } from "@/lib/log";
+import { materializeRoutineTasks } from "@/lib/routines/materialize";
 
 const RECENT_REFLECTIONS_LIMIT = 7;
 
@@ -34,6 +35,7 @@ function TaskRow({ task, activeSession }: { task: Task; activeSession: TaskSessi
             <h3 className="text-base font-semibold text-slate-900">{task.title}</h3>
             <StatusBadge status={task.status} />
             <PriorityBadge priority={task.priority} />
+            {task.routine_id && <RoutineBadge />}
             {task.due_date && <span className="text-xs font-medium text-slate-500">Due {task.due_date}</span>}
           </div>
           {task.description && <p className="mt-1 text-sm text-slate-600">{task.description}</p>}
@@ -65,6 +67,8 @@ export default async function TodayPage() {
   const todayISODate = getTodayISODate(timeZone);
 
   const supabase = await createClient();
+  // Today's routine sessions become tasks before the page reads them.
+  await materializeRoutineTasks(supabase, todayISODate);
   const [
     { data: tasks, error: tasksError },
     { data: activeSessions },

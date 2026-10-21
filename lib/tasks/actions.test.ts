@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { updateTaskStatus } from "@/lib/tasks/actions";
+import { deleteTask, updateTaskStatus } from "@/lib/tasks/actions";
 import * as authModule from "@/lib/auth/require-user";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -76,5 +76,39 @@ describe("updateTaskStatus timers", () => {
     signIn(supabase);
     await expect(updateTaskStatus(statusForm("completed"))).rejects.toThrow("Could not stop the running timer: network down");
     expect(calls).not.toContain("update status to completed");
+  });
+});
+
+describe("deleteTask", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** A task row with the given routine, recording whether it was deleted or updated. */
+  function taskTable(routineId: string | null) {
+    const calls: Array<{ op: string; values?: Record<string, unknown> }> = [];
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      maybeSingle: () => Promise.resolve({ data: { routine_id: routineId }, error: null }),
+      update: (values: Record<string, unknown>) => { calls.push({ op: "update", values }); return chain; },
+      delete: () => { calls.push({ op: "delete" }); return chain; },
+      then: (resolve: (value: { error: null }) => void) => resolve({ error: null }),
+    };
+    return { supabase: { from: () => chain }, calls };
+  }
+
+  const form = () => { const data = new FormData(); data.set("id", "task-1"); return data; };
+
+  it("deletes an ordinary task", async () => {
+    const { supabase, calls } = taskTable(null);
+    signIn(supabase);
+    await deleteTask(form());
+    expect(calls).toEqual([{ op: "delete" }]);
+  });
+
+  it("skips a routine's session instead of deleting it, so it doesn't come back", async () => {
+    const { supabase, calls } = taskTable("routine-1");
+    signIn(supabase);
+    await deleteTask(form());
+    expect(calls).toEqual([{ op: "update", values: { status: "skipped", status_reason: "Skipped this session of the routine." } }]);
   });
 });

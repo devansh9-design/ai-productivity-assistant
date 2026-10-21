@@ -99,3 +99,6 @@ jobs:
 
       - name: Database behaviour tests (student roadmap)
         run: psql -v ON_ERROR_STOP=1 -At -f scripts/db-tests/student-roadmap.sql
+
+      - name: Database behaviour tests (routine tasks)
+        run: psql -v ON_ERROR_STOP=1 -At -f scripts/db-tests/routine-tasks.sql

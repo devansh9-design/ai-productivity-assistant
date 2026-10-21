@@ -2,7 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createTask, deleteTask, updateTaskSchedulingMetadata } from "@/lib/tasks/actions";
-import { StatusBadge, PriorityBadge, EmptyState } from "@/components/status-badge";
+import { StatusBadge, PriorityBadge, EmptyState, RoutineBadge } from "@/components/status-badge";
 import { ActionForm } from "@/components/action-form";
 import { ActionSubmitButton } from "@/components/action-submit-button";
 import { TaskActionForm } from "@/components/task-action-form";
@@ -10,6 +10,7 @@ import { TIMEZONE_COOKIE_NAME } from "@/lib/tasks/timezone";
 import { DEFAULT_TASK_FILTER, TASK_FILTERS, filterTasks, isTaskFilter, type TaskFilter } from "@/lib/tasks/filters";
 import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
 import type { Goal, Milestone, Project, Task } from "@/lib/types";
+import { materializeRoutineTasks } from "@/lib/routines/materialize";
 
 const FILTER_LABELS: Record<TaskFilter, string> = {
   inbox: "Inbox",
@@ -32,6 +33,7 @@ export default async function TasksPage({
   const todayISODate = getTodayISODate(timeZone);
 
   const supabase = await createClient();
+  await materializeRoutineTasks(supabase, todayISODate);
   const [{ data: tasks, error }, { data: goals }, { data: projects }, { data: milestones }] = await Promise.all([
     supabase.from("tasks").select("*").order("due_date", { ascending: true }).returns<Task[]>(),
     supabase.from("goals").select("*").order("title", { ascending: true }).returns<Goal[]>(),
@@ -255,6 +257,7 @@ export default async function TasksPage({
                   <StatusBadge status={task.status} />
                   <PriorityBadge priority={task.priority} />
                   {task.must_do && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">Must-do</span>}
+                  {task.routine_id && <RoutineBadge />}
                   {task.due_date && <span className="text-xs font-medium text-slate-500">Due {task.due_date}</span>}
                   {task.goal_id && (
                     <span className="text-xs font-medium text-slate-500">
@@ -309,15 +312,18 @@ export default async function TasksPage({
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <TaskActionForm task={task} />
-                <form action={deleteTask}>
-                  <input type="hidden" name="id" value={task.id} />
-                  <button
-                    type="submit"
-                    className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                  >
-                    Delete
-                  </button>
-                </form>
+                {/* A routine's session is skipped, not deleted; change the routine itself on its goal page. */}
+                {!task.routine_id && (
+                  <form action={deleteTask}>
+                    <input type="hidden" name="id" value={task.id} />
+                    <button
+                      type="submit"
+                      className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      Delete
+                    </button>
+                  </form>
+                )}
               </div>
             </div>
           </article>
