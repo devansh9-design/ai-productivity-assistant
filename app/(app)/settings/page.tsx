@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -15,7 +16,7 @@ import { DEFAULT_TIMEZONE, TIMEZONE_COOKIE_NAME } from "@/lib/tasks/timezone";
 import type { AvailabilityRule, FixedCommitment } from "@/lib/types";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const RULE_LABELS: Record<string, string> = { working: "working hours", high_focus: "high-focus window", exercise: "gym / exercise" };
+const RULE_LABELS: Record<string, string> = { working: "study / working hours", high_focus: "high-focus window", exercise: "gym / exercise", class: "class" };
 
 function shortTime(value: string) {
   return value.slice(0, 5);
@@ -57,6 +58,13 @@ export default async function SettingsPage({
       <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">Schedule preferences</p>
       <h1 id="page-title" className="mt-2 text-3xl font-bold tracking-tight text-slate-900">Settings</h1>
       <p className="mt-2 max-w-2xl text-slate-600">Set recurring availability and protected time. The daily scheduler only places tasks inside working windows.</p>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 card p-5">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Profile and weekly timetable</h2>
+          <p className="mt-1 text-sm text-slate-600">Your name, year, timezone, classes and study times, the same steps as when you signed up.</p>
+        </div>
+        <Link href="/onboarding?edit=1" className="btn-secondary">Edit profile and week</Link>
+      </div>
 
       <ActionForm action={createAvailabilityRule} className="mt-8 card p-6">
         <h2 className="text-lg font-semibold text-slate-900">Recurring schedule rule</h2>
@@ -69,7 +77,7 @@ export default async function SettingsPage({
           </label>
           <label className="text-sm font-medium text-slate-800">Type
             <select name="kind" defaultValue="working" className="input mt-1">
-              <option value="working">Working hours</option><option value="high_focus">High-focus window</option><option value="sleep">Sleep</option><option value="meal">Meal</option><option value="travel">Travel</option><option value="break">Break</option><option value="exercise">Gym / exercise</option>
+              <option value="working">Study / working hours</option><option value="class">Class</option><option value="high_focus">High-focus window</option><option value="sleep">Sleep</option><option value="meal">Meal</option><option value="travel">Travel</option><option value="break">Break</option><option value="exercise">Gym / exercise</option>
             </select>
           </label>
           <label className="text-sm font-medium text-slate-800">Start time<input name="start_time" type="time" required className="input mt-1" /></label>

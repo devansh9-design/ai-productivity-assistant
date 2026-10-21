@@ -6,7 +6,7 @@ export type TaskPriority = "low" | "medium" | "high" | "urgent";
 
 export type EnergyLevel = "low" | "medium" | "high";
 
-export type AvailabilityRuleKind = "working" | "high_focus" | "sleep" | "meal" | "travel" | "break" | "exercise";
+export type AvailabilityRuleKind = "working" | "high_focus" | "sleep" | "meal" | "travel" | "break" | "exercise" | "class";
 export type PlanBlockKind = "task" | "buffer" | "calendar";
 export type PlanStatus = "draft" | "publishing" | "publication_failed" | "confirmed" | "superseded" | "completed";
 

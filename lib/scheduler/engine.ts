@@ -1,6 +1,6 @@
 import { minutesFromHHMM } from "@/lib/time";
 
-export type SchedulerRuleKind = "working" | "high_focus" | "sleep" | "meal" | "travel" | "break" | "exercise";
+export type SchedulerRuleKind = "working" | "high_focus" | "sleep" | "meal" | "travel" | "break" | "exercise" | "class";
 export type SchedulerEnergyLevel = "low" | "medium" | "high" | null;
 export type SchedulerPriority = "low" | "medium" | "high" | "urgent";
 

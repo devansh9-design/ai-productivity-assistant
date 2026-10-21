@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/auth/require-user";
 import { isValidISODate } from "@/lib/tasks/date-validation";
 import type { AvailabilityRuleKind } from "@/lib/types";
 
-const RULE_KINDS: AvailabilityRuleKind[] = ["working", "high_focus", "sleep", "meal", "travel", "break", "exercise"];
+const RULE_KINDS: AvailabilityRuleKind[] = ["working", "high_focus", "class", "sleep", "meal", "travel", "break", "exercise"];
 
 function requiredText(formData: FormData, key: string, label: string) {
   const value = String(formData.get(key) ?? "").trim();
