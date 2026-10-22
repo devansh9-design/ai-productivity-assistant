@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/require-user";
 import { resolveTaskStatusUpdate, stopsRunningTimer } from "@/lib/tasks/status-update";
-import { buildTaskSchedulingMetadataUpdate } from "@/lib/tasks/scheduling-metadata";
+import { isValidISODate } from "@/lib/tasks/date-validation";
 import type { TaskPriority, EnergyLevel } from "@/lib/types";
 
 const PRIORITIES: TaskPriority[] = ["low", "medium", "high", "urgent"];
@@ -26,13 +26,26 @@ function optionalMinutes(formData: FormData, key: string) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+/**
+ * Adds a one-off task from Today's "Add a task" form (title, goal, time
+ * estimate, priority, must do, due date). Errors are returned, not thrown, so
+ * production builds show the real message.
+ */
 export async function createTask(formData: FormData) {
   const { supabase, user } = await requireUser();
   const title = String(formData.get("title") ?? "").trim();
-  if (!title) throw new Error("Title is required.");
+  if (!title) return { error: "Give the task a title." };
+  if (title.length > 200) return { error: "Keep the title to 200 characters or fewer." };
 
   const priority = String(formData.get("priority") ?? "medium");
   const energyLevel = optionalText(formData, "energy_level");
+  const estimateRaw = optionalText(formData, "estimated_minutes");
+  const estimatedMinutes = optionalMinutes(formData, "estimated_minutes");
+  if (estimateRaw && (estimatedMinutes === null || estimatedMinutes < 1 || estimatedMinutes > 1440)) {
+    return { error: "The time estimate must be a whole number of minutes between 1 and 1440." };
+  }
+  const dueDate = optionalText(formData, "due_date");
+  if (dueDate && !isValidISODate(dueDate)) return { error: "Choose a valid due date." };
 
   const { error } = await supabase.from("tasks").insert({
     user_id: user.id,
@@ -45,16 +58,18 @@ export async function createTask(formData: FormData) {
     must_do: formData.get("must_do") === "on",
     energy_level:
       energyLevel && ENERGY_LEVELS.includes(energyLevel as EnergyLevel) ? energyLevel : null,
-    estimated_minutes: optionalMinutes(formData, "estimated_minutes"),
-    due_date: optionalText(formData, "due_date"),
+    estimated_minutes: estimatedMinutes,
+    due_date: dueDate,
     goal_id: optionalText(formData, "goal_id"),
     project_id: optionalText(formData, "project_id"),
     milestone_id: optionalText(formData, "milestone_id"),
   });
-  if (error) throw new Error(error.message);
+  if (error) return { error: `Could not add the task: ${error.message}` };
 
-  revalidatePath("/tasks");
   revalidatePath("/today");
+  revalidatePath("/week");
+  revalidatePath("/month");
+  return { message: `Added "${title}".` };
 }
 
 export async function updateTaskStatus(formData: FormData) {
@@ -90,42 +105,29 @@ export async function updateTaskStatus(formData: FormData) {
   const { error } = await supabase.from("tasks").update(update).eq("id", id).eq("user_id", user.id);
   if (error) throw new Error(error.message);
 
-  revalidatePath("/tasks");
-  revalidatePath("/today");
-}
-
-export async function updateTaskSchedulingMetadata(formData: FormData) {
-  const { supabase, user } = await requireUser();
-  const id = String(formData.get("id") ?? "");
-  if (!id) throw new Error("Missing task id.");
-
-  const { error } = await supabase
-    .from("tasks")
-    .update(buildTaskSchedulingMetadataUpdate(formData))
-    .eq("id", id)
-    .eq("user_id", user.id);
-  if (error) throw new Error(error.message);
-
-  revalidatePath("/tasks");
   revalidatePath("/today");
 }
 
 /**
- * Deletes a task. A task created by a routine is skipped instead: deleting
- * today's session would only bring it back on the next page load, and keeping
- * it records that the session didn't happen.
+ * Deletes a one-off task from Today, after the student confirms. A routine's
+ * session is skipped instead, because deleting it would only let the routine
+ * create it again. Errors are returned, not thrown, so production shows them.
  */
 export async function deleteTask(formData: FormData) {
   const { supabase, user } = await requireUser();
   const id = String(formData.get("id") ?? "");
-  if (!id) throw new Error("Missing task id.");
+  if (!id) return { error: "Missing task id." };
 
-  const { data: task } = await supabase.from("tasks").select("routine_id").eq("id", id).eq("user_id", user.id).maybeSingle<{ routine_id: string | null }>();
-  const { error } = task?.routine_id
+  const { data: task, error: readError } = await supabase.from("tasks").select("routine_id").eq("id", id).eq("user_id", user.id).maybeSingle<{ routine_id: string | null }>();
+  if (readError) return { error: `Could not delete the task: ${readError.message}` };
+  if (!task) return { error: "That task no longer exists. Refresh the page." };
+  const { error } = task.routine_id
     ? await supabase.from("tasks").update({ status: "skipped", status_reason: "Skipped this session of the routine." }).eq("id", id).eq("user_id", user.id)
     : await supabase.from("tasks").delete().eq("id", id).eq("user_id", user.id);
-  if (error) throw new Error(error.message);
+  if (error) return { error: `Could not delete the task: ${error.message}` };
 
-  revalidatePath("/tasks");
   revalidatePath("/today");
+  revalidatePath("/week");
+  revalidatePath("/month");
+  return { message: task.routine_id ? "Skipped this session of the routine." : "Task deleted." };
 }

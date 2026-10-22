@@ -40,7 +40,6 @@ export async function saveEveningLog(formData: FormData) {
   if (error) return { error: `Could not save the evening log: ${error.message}` };
 
   revalidatePath("/today");
-  revalidatePath("/tasks");
   revalidatePath("/goals", "layout");
   const logged = input.items.length;
   const numbers = input.metrics.filter((metric) => metric.value !== null).length;

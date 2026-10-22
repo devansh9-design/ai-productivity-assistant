@@ -141,7 +141,6 @@ export async function applyFeedbackSuggestion(formData: FormData) {
   const statusError = await setStatus(context, "applied");
   if (statusError) return { error: statusError };
   revalidatePath("/today");
-  revalidatePath("/tasks");
   revalidatePath("/goals", "layout");
   return { message: "Applied." };
 }

@@ -118,7 +118,6 @@ export async function saveWeeklyPlan(formData: FormData) {
 
   revalidatePath("/review");
   revalidatePath("/today");
-  revalidatePath("/tasks");
   return {
     message: `Saved for the week starting ${formatDay(planningWeek)}. Daily plans that week rank these priorities first; nothing is scheduled or published until you generate and confirm a plan.`,
   };

@@ -82,16 +82,16 @@ describe("updateTaskStatus timers", () => {
 describe("deleteTask", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  /** A task row with the given routine, recording whether it was deleted or updated. */
-  function taskTable(routineId: string | null) {
+  /** A task row with the given routine (or none), recording whether it was deleted or updated. */
+  function taskTable(row: { routine_id: string | null } | null, writeError: { message: string } | null = null) {
     const calls: Array<{ op: string; values?: Record<string, unknown> }> = [];
     const chain = {
       select: () => chain,
       eq: () => chain,
-      maybeSingle: () => Promise.resolve({ data: { routine_id: routineId }, error: null }),
+      maybeSingle: () => Promise.resolve({ data: row, error: null }),
       update: (values: Record<string, unknown>) => { calls.push({ op: "update", values }); return chain; },
       delete: () => { calls.push({ op: "delete" }); return chain; },
-      then: (resolve: (value: { error: null }) => void) => resolve({ error: null }),
+      then: (resolve: (value: { error: { message: string } | null }) => void) => resolve({ error: writeError }),
     };
     return { supabase: { from: () => chain }, calls };
   }
@@ -99,16 +99,27 @@ describe("deleteTask", () => {
   const form = () => { const data = new FormData(); data.set("id", "task-1"); return data; };
 
   it("deletes an ordinary task", async () => {
-    const { supabase, calls } = taskTable(null);
+    const { supabase, calls } = taskTable({ routine_id: null });
     signIn(supabase);
-    await deleteTask(form());
+    expect(await deleteTask(form())).toEqual({ message: "Task deleted." });
     expect(calls).toEqual([{ op: "delete" }]);
   });
 
   it("skips a routine's session instead of deleting it, so it doesn't come back", async () => {
-    const { supabase, calls } = taskTable("routine-1");
+    const { supabase, calls } = taskTable({ routine_id: "routine-1" });
     signIn(supabase);
-    await deleteTask(form());
+    expect(await deleteTask(form())).toEqual({ message: "Skipped this session of the routine." });
     expect(calls).toEqual([{ op: "update", values: { status: "skipped", status_reason: "Skipped this session of the routine." } }]);
+  });
+
+  it("returns an error for a task that is already gone, or when the delete fails", async () => {
+    const gone = taskTable(null);
+    signIn(gone.supabase);
+    expect(await deleteTask(form())).toEqual({ error: "That task no longer exists. Refresh the page." });
+    expect(gone.calls).toEqual([]);
+
+    const failing = taskTable({ routine_id: null }, { message: "network down" });
+    signIn(failing.supabase);
+    expect(await deleteTask(form())).toEqual({ error: "Could not delete the task: network down" });
   });
 });
