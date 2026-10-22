@@ -72,3 +72,13 @@ button, input, select, textarea { font: inherit; }
     @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
   }
 }
+
+/* Month view: how much of a day's plan got done. One hue, checked with the
+   dataviz ordinal validator: darker = more done on white, brighter = more
+   done on the dark card. Used as a strip, never behind text. */
+.day-level-1 { background-color: #10b981; }
+.day-level-2 { background-color: #047857; }
+.day-level-3 { background-color: #064e3b; }
+.dark .day-level-1 { background-color: #047857; }
+.dark .day-level-2 { background-color: #10b981; }
+.dark .day-level-3 { background-color: #6ee7b7; }

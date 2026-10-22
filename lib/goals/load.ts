@@ -37,6 +37,8 @@ export interface GoalDetail {
   routines: Routine[];
   /** Where each metric stands from its logged values, by metric id. */
   progress: Record<string, MetricProgress>;
+  /** Each metric's logged values, by metric id, oldest first. */
+  logs: Record<string, Array<{ date: string; value: number }>>;
 }
 
 /** One goal and its whole roadmap, or null when it doesn't exist (or isn't the student's). */
@@ -62,5 +64,9 @@ export async function loadGoalDetail(supabase: SupabaseClient, goalId: string): 
     metric.id,
     metricProgress(metric, (logs.data ?? []).filter((log) => log.goal_metric_id === metric.id)),
   ]));
-  return { goal: goal.data, metrics: metricRows, phases: phases.data ?? [], targets: targets.data ?? [], routines: routines.data ?? [], progress };
+  const logsByMetric = Object.fromEntries(metricRows.map((metric) => [
+    metric.id,
+    (logs.data ?? []).filter((log) => log.goal_metric_id === metric.id).map((log) => ({ date: log.log_date, value: Number(log.value) })).sort((a, b) => a.date.localeCompare(b.date)),
+  ]));
+  return { goal: goal.data, metrics: metricRows, phases: phases.data ?? [], targets: targets.data ?? [], routines: routines.data ?? [], progress, logs: logsByMetric };
 }

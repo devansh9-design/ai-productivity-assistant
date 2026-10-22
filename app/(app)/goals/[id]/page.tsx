@@ -12,7 +12,8 @@ import { ActionSubmitButton } from "@/components/action-submit-button";
 import { CategoryBadge, GoalFields } from "@/components/goals/goal-fields";
 import { DeleteGoalButton } from "@/components/goals/delete-goal-button";
 import { AIRoadmapBuilder } from "@/components/goals/ai-roadmap-builder";
-import { MetricsSection, RoadmapSection, RoutinesSection, TargetsSection } from "@/components/goals/sections";
+import { MetricsSection, RoadmapSection, RoutinesSection, TargetsSection, type MetricChartData } from "@/components/goals/sections";
+import { buildMetricSeries, describeFinish, estimateFinish } from "@/lib/goals/progress";
 import { StatusBadge } from "@/components/status-badge";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -27,9 +28,15 @@ export default async function GoalPage({ params }: { params: Promise<{ id: strin
   const supabase = await createClient();
   const detail = await loadGoalDetail(supabase, id);
   if (!detail) notFound();
-  const { goal, metrics, phases, targets, routines, progress } = detail;
+  const { goal, metrics, phases, targets, routines, progress, logs } = detail;
   const today = getTodayISODate((await cookies()).get(TIMEZONE_COOKIE_NAME)?.value || DEFAULT_TIMEZONE);
   const daysLeft = goal.target_date ? daysBetween(today, goal.target_date) - 1 : null;
+  const dates = { startDate: goal.start_date, targetDate: goal.target_date };
+  const charts: Record<string, MetricChartData> = Object.fromEntries(metrics.map((metric) => {
+    const input = { aggregation: metric.aggregation, baseline: metric.baseline_value === null ? null : Number(metric.baseline_value), target: metric.target_value === null ? null : Number(metric.target_value) };
+    const series = buildMetricSeries(input, logs[metric.id] ?? [], dates, today);
+    return [metric.id, { series, finish: describeFinish(estimateFinish(series, input, dates, today)) }];
+  }));
 
   return (
     <article aria-labelledby="page-title" className="mx-auto max-w-4xl">
@@ -76,7 +83,7 @@ export default async function GoalPage({ params }: { params: Promise<{ id: strin
             today={today}
           />
         )}
-        <MetricsSection goal={goal} metrics={metrics} progress={progress} />
+        <MetricsSection goal={goal} metrics={metrics} progress={progress} charts={charts} />
         <RoadmapSection goal={goal} phases={phases} today={today} />
         <TargetsSection goal={goal} targets={targets} metrics={metrics} today={today} />
         <RoutinesSection goal={goal} routines={routines} metrics={metrics} />
