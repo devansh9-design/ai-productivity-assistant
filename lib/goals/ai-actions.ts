@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/require-user";
-import { AI_REQUESTS_PER_DAY, AI_REQUESTS_PER_MINUTE, claimAIRequest, describeWait } from "@/lib/ai/rate-limit";
+import { claimAIRequest, limitMessage } from "@/lib/ai/rate-limit";
 import { generateGeminiJson } from "@/lib/gemini";
 import { buildRoadmapPrompt, checkDraft, DRAFT_SECTIONS, ROADMAP_RESPONSE_SCHEMA, type DraftSection, type DraftSettings, type RoadmapDraft } from "@/lib/goals/ai-roadmap";
 import { weeklyMinutes } from "@/lib/goals/roadmap";
@@ -79,7 +79,7 @@ export async function draftRoadmap(input: {
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       const claim = await claimAIRequest(supabase);
       if (!claim.allowed) {
-        return { ok: false, error: `You've reached the AI limit of ${AI_REQUESTS_PER_MINUTE} requests a minute and ${AI_REQUESTS_PER_DAY} a day. Try again in ${describeWait(claim.retryAfterSeconds)}.` };
+        return { ok: false, error: limitMessage(claim) };
       }
       const answer = await generateGeminiJson({ prompt: buildRoadmapPrompt({ ...context, fixError }), responseSchema: ROADMAP_RESPONSE_SCHEMA });
       const checked = checkDraft(answer, settings, existingMetrics, today);

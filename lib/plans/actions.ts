@@ -472,14 +472,15 @@ export async function replanToday(formData: FormData) {
   if (!plan) return { error: "Generate today's plan before replanning." };
   if (plan.status === "publishing" || plan.status === "publication_failed") return { error: "Finish or retry publishing today's plan before replanning." };
 
-  const [blocksResult, unscheduledResult, tasksResult, rulesResult, commitmentsResult] = await Promise.all([
+  const [blocksResult, unscheduledResult, tasksResult, rulesResult, commitmentsResult, checkinResult] = await Promise.all([
     supabase.from("plan_blocks").select("*").eq("daily_plan_id", plan.id).eq("user_id", user.id).returns<PlanBlock[]>(),
     supabase.from("plan_unscheduled_tasks").select("task_id,reason").eq("daily_plan_id", plan.id).eq("user_id", user.id).returns<Array<{ task_id: string; reason: string }>>(),
     supabase.from("tasks").select("*").eq("user_id", user.id).returns<Task[]>(),
     supabase.from("availability_rules").select("weekday,kind,start_time,end_time").eq("user_id", user.id).eq("weekday", weekday),
     supabase.from("fixed_commitments").select("id,commitment_date,title,start_time,end_time").eq("user_id", user.id).eq("commitment_date", planDate),
+    supabase.from("checkins").select("available_minutes").eq("user_id", user.id).eq("checkin_date", planDate).eq("type", "morning").maybeSingle<Pick<Checkin, "available_minutes">>(),
   ]);
-  const loadError = blocksResult.error ?? unscheduledResult.error ?? tasksResult.error ?? rulesResult.error ?? commitmentsResult.error;
+  const loadError = blocksResult.error ?? unscheduledResult.error ?? tasksResult.error ?? rulesResult.error ?? commitmentsResult.error ?? checkinResult.error;
   if (loadError) return { error: `Could not load scheduling data: ${loadError.message}` };
 
   let calendar;
@@ -506,6 +507,8 @@ export async function replanToday(formData: FormData) {
       durationFactor: personalization.durationFactor,
     },
     freeWindow,
+    // Catching up stays within the free time stated at the morning check-in.
+    taskMinutesBudget: checkinResult.data?.available_minutes ?? null,
   });
   const note = calendarSkipNote(calendar);
   if (!result.changed) return { message: note ? `${result.summary} ${note}` : result.summary };

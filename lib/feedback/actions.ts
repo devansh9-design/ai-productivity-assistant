@@ -54,10 +54,10 @@ export async function generateDailyFeedback() {
       claim = await claimAIRequest(supabase);
     } catch (limitError) {
       log("error", "ai.rate_limit_check_failed", { userId: user.id, ...errorFields(limitError) });
-      claim = { allowed: false, retryAfterSeconds: 0 };
+      claim = { allowed: false, retryAfterSeconds: 0, scope: "day" };
     }
     if (!claim.allowed) {
-      if (claim.retryAfterSeconds > 0) log("warn", "ai.rate_limited", { userId: user.id, retryAfterSeconds: claim.retryAfterSeconds, wait: describeWait(claim.retryAfterSeconds) });
+      if (claim.retryAfterSeconds > 0) log("warn", "ai.rate_limited", { userId: user.id, retryAfterSeconds: claim.retryAfterSeconds, scope: claim.scope, wait: describeWait(claim.retryAfterSeconds) });
       feedback = fallbackFeedback(facts);
     } else try {
       const checked = validateAIFeedback(await generateGeminiJson({ prompt: buildFeedbackPrompt(facts), responseSchema: FEEDBACK_RESPONSE_SCHEMA }), facts);

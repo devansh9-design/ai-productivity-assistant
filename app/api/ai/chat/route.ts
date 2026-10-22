@@ -4,7 +4,7 @@ import { generateGeminiJson } from "@/lib/gemini";
 import { PROPOSAL_TYPES, type PlanningProposal } from "@/lib/ai/proposal";
 import { dropNullItemFields, validatePlanningProposal } from "@/lib/ai/validate-proposal";
 import { requireUser } from "@/lib/auth/require-user";
-import { AI_REQUESTS_PER_DAY, AI_REQUESTS_PER_MINUTE, claimAIRequest, describeWait } from "@/lib/ai/rate-limit";
+import { claimAIRequest, limitMessage } from "@/lib/ai/rate-limit";
 import { errorFields, log } from "@/lib/log";
 
 export const runtime = "nodejs";
@@ -58,9 +58,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "The AI assistant is temporarily unavailable. Please try again shortly." }, { status: 503 });
     }
     if (!claim.allowed) {
-      log("warn", "ai.rate_limited", { userId: user.id, retryAfterSeconds: claim.retryAfterSeconds });
+      log("warn", "ai.rate_limited", { userId: user.id, retryAfterSeconds: claim.retryAfterSeconds, scope: claim.scope });
       return NextResponse.json(
-        { error: `You've reached the AI assistant's limit of ${AI_REQUESTS_PER_MINUTE} requests a minute and ${AI_REQUESTS_PER_DAY} a day. Try again in ${describeWait(claim.retryAfterSeconds)}.` },
+        { error: limitMessage(claim) },
         { status: 429, headers: { "Retry-After": String(claim.retryAfterSeconds) } },
       );
     }

@@ -6,6 +6,7 @@ import { ActionForm } from "@/components/action-form";
 import { ActionSubmitButton } from "@/components/action-submit-button";
 import { createAvailabilityRule, createFixedCommitment, deleteAvailabilityRule, deleteFixedCommitment } from "@/lib/scheduler/actions";
 import { CalendarStatusCard } from "@/components/settings/calendar-status-card";
+import { DeleteAccountForm } from "@/components/delete-account-form";
 import { getGoogleConnectUrl } from "@/lib/google/actions";
 import { isGoogleCalendarConnected } from "@/lib/google/oauth";
 import { loadCalendarStatus } from "@/lib/integrations/status";
@@ -154,7 +155,20 @@ export default async function SettingsPage({
           className="mt-4 inline-block btn-secondary">
           Download my data
         </a>
+        <p className="mt-3 text-sm text-slate-600">
+          How your data is used: <Link href="/privacy" className="font-medium text-indigo-700 hover:text-indigo-900">privacy</Link>.
+        </p>
       </div>
+
+      {user?.email && (
+        <div className="mt-8 card border-rose-200 p-6">
+          <h2 className="text-lg font-semibold text-slate-900">Delete account</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            This permanently deletes your account and everything in it: goals, plans, logs, reviews and AI history. Google Calendar is disconnected, but events already in your calendar stay there. It can&apos;t be undone, so download your data above first if you want a copy.
+          </p>
+          <DeleteAccountForm email={user.email} />
+        </div>
+      )}
     </section>
   );
 }
