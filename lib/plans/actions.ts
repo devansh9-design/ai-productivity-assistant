@@ -16,12 +16,14 @@ import { calendarFailure, calendarSkipNote, classifyCalendarError, CALENDAR_ERRO
 import { loadCalendarStatus, readCalendarForUser, recordCalendarFailure, recordCalendarSuccess } from "@/lib/integrations/status";
 import { createPlannerEvent, deletePlannerEvent, getOrCreatePlannerCalendar, updatePlannerEvent } from "@/lib/google/planner-calendar";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import type { DailyPlan, PlanBlock, Task } from "@/lib/types";
+import type { Checkin, DailyPlan, PlanBlock, Task } from "@/lib/types";
 import { validatePlanningProposal } from "@/lib/ai/validate-proposal";
 import type { PlanningProposal } from "@/lib/ai/proposal";
 import { errorFields, log } from "@/lib/log";
 import { materializeRoutineTasks } from "@/lib/routines/materialize";
 import { minutesFromHHMM } from "@/lib/time";
+import { describePlanFit, morningPolicy, weeklyTargetTaskIds } from "@/lib/checkins/morning";
+import { loadGoalsBehindWeeklyTarget } from "@/lib/checkins/load";
 
 function timeMinutes(value: string): number {
   return minutesFromHHMM(value) ?? -1;
@@ -59,14 +61,15 @@ export async function generateDraftPlan(formData?: FormData) {
   // Today's routine sessions become tasks before the plan reads them.
   await materializeRoutineTasks(supabase, planDate);
 
-  const [{ data: rules, error: rulesError }, { data: commitments, error: commitmentsError }, { data: tasks, error: tasksError }, { data: existingActivePlan }] = await Promise.all([
+  const [{ data: rules, error: rulesError }, { data: commitments, error: commitmentsError }, { data: tasks, error: tasksError }, { data: existingActivePlan }, { data: morningCheckin, error: checkinError }] = await Promise.all([
     supabase.from("availability_rules").select("*").eq("weekday", weekday),
     supabase.from("fixed_commitments").select("*").eq("commitment_date", planDate),
     supabase.from("tasks").select("*").returns<Task[]>(),
     supabase.from("daily_plans").select("*").eq("plan_date", planDate).in("status", ["draft", "confirmed"]).maybeSingle<DailyPlan>(),
+    supabase.from("checkins").select("*").eq("checkin_date", planDate).eq("type", "morning").maybeSingle<Checkin>(),
   ]);
-  if (rulesError || commitmentsError || tasksError) {
-    return { error: rulesError?.message ?? commitmentsError?.message ?? tasksError?.message ?? "Could not load scheduling data." };
+  if (rulesError || commitmentsError || tasksError || checkinError) {
+    return { error: rulesError?.message ?? commitmentsError?.message ?? tasksError?.message ?? checkinError?.message ?? "Could not load scheduling data." };
   }
 
   let manualBlocks: ExistingManualBlock[] = [];
@@ -93,9 +96,10 @@ export async function generateDraftPlan(formData?: FormData) {
   if (calendar.kind === "failed") return calendarFailure(calendar.code);
   const calendarEvents = calendar.kind === "events" ? calendar.events : [];
 
-  const [personalization, priorityTaskIds] = await Promise.all([
+  const [personalization, priorityTaskIds, goalsBehind] = await Promise.all([
     loadPersonalization(supabase, timeZone),
     loadWeekPriorityIds(supabase, mondayOf(planDate)),
+    loadGoalsBehindWeeklyTarget(supabase, mondayOf(planDate), planDate),
   ]);
   const planResult = buildDraftPlan({
     date: planDate, weekday, availabilityRules, fixedCommitments, tasks: engineTasks, existingManualBlocks: manualBlocks, calendarEvents,
@@ -106,6 +110,10 @@ export async function generateDraftPlan(formData?: FormData) {
       earliestStartTime: getLocalTimeHHMM(timeZone),
       // This week's chosen priorities rank first among otherwise similar work.
       priorityTaskIds,
+      // Work for goals still short of this week's target comes first on a light day.
+      weeklyTargetTaskIds: weeklyTargetTaskIds(tasks ?? [], goalsBehind),
+      // The morning check-in's free time and energy shape the plan.
+      ...morningPolicy(morningCheckin ?? null, personalization.preferences.lowEnergyMaxBlockMinutes),
     },
   });
   const { data: plan, error: planError } = await supabase.rpc("create_draft_plan", {
@@ -119,7 +127,16 @@ export async function generateDraftPlan(formData?: FormData) {
   if (planError || !plan) return { error: planError?.message ?? "Could not save draft plan." };
   revalidatePath("/today");
   const note = calendarSkipNote(calendar);
-  return note ? { message: `Draft plan generated. ${note}` } : undefined;
+  const fit = morningCheckin?.available_minutes != null
+    ? describePlanFit({
+        availableMinutes: morningCheckin.available_minutes,
+        plannedMinutes: planResult.blocks.filter((b) => b.kind === "task").reduce((total, b) => total + timeMinutes(b.endTime) - timeMinutes(b.startTime), 0),
+        energy: morningCheckin.energy_level,
+        leftOut: planResult.unscheduled.length,
+      })
+    : null;
+  const message = [fit ?? (note ? "Draft plan generated." : null), note].filter(Boolean).join(" ");
+  return message ? { message } : undefined;
 }
 
 /**

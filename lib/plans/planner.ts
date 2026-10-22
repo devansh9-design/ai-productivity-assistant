@@ -214,6 +214,16 @@ export function buildDraftPlan(input: PlanDraftInput): PlanDraftResult {
     endTime: b.end_time.slice(0, 5),
   }));
 
+  // Preserved manual blocks use up part of the check-in's free time.
+  const manualMinutes = validManualBlocks.reduce(
+    (total, b) => total + timeToMinutes(b.end_time.slice(0, 5)) - timeToMinutes(b.start_time.slice(0, 5)),
+    0,
+  );
+  const enginePolicy: SchedulePolicy | undefined =
+    policy?.taskMinutesBudget != null
+      ? { ...policy, taskMinutesBudget: Math.max(0, policy.taskMinutesBudget - manualMinutes) }
+      : policy;
+
   // Run engine with manual blocks + calendar events added to fixed commitments for placement collision avoidance
   const engineResult = generateSchedule({
     date,
@@ -221,7 +231,7 @@ export function buildDraftPlan(input: PlanDraftInput): PlanDraftResult {
     availabilityRules,
     fixedCommitments: [...allFixedCommitments, ...manualAsFixed],
     tasks: engineTasks,
-    policy,
+    policy: enginePolicy,
   });
 
   // Combine unscheduled list (invalid manual blocks + engine unscheduled)

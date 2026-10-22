@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveDuration, generateSchedule, LOW_ENERGY_DEFERRAL_REASON, scoreTask, type ScheduleInput, type SchedulerTask } from "@/lib/scheduler/engine";
+import { effectiveDuration, generateSchedule, LOW_ENERGY_DEFERRAL_REASON, scoreTask, TIME_BUDGET_REASON, type ScheduleInput, type SchedulerTask } from "@/lib/scheduler/engine";
 
 const baseTask = (overrides: Partial<SchedulerTask> = {}): SchedulerTask => ({
   id: "task-1", title: "Task", status: "todo", priority: "medium", urgency: 3, impact: 3, mustDo: false,
@@ -231,5 +231,53 @@ describe("weekly priority boost (Day 11)", () => {
     const tired = oneSlot([baseTask({ id: "pri", energyLevel: "high" }), baseTask({ id: "a" })], ["pri"], { lowEnergy: true });
     expect(placedIds(tired)).toEqual(["a"]);
     expect(tired.unscheduled).toEqual([{ taskId: "pri", reason: LOW_ENERGY_DEFERRAL_REASON }]);
+  });
+});
+
+describe("generateSchedule morning check-in (Phase 2 Step 6)", () => {
+  const placedIds = (result: ReturnType<typeof generateSchedule>) =>
+    result.blocks.filter((block) => block.kind === "task").map((block) => block.taskId);
+  const taskMinutes = (result: ReturnType<typeof generateSchedule>) =>
+    result.blocks.filter((block) => block.kind === "task").reduce((total, block) =>
+      total + (Number(block.endTime.slice(0, 2)) * 60 + Number(block.endTime.slice(3, 5))) - (Number(block.startTime.slice(0, 2)) * 60 + Number(block.startTime.slice(3, 5))), 0);
+  const threeTasks = [
+    baseTask({ id: "a", estimatedMinutes: 60, urgency: 5 }),
+    baseTask({ id: "b", estimatedMinutes: 60, urgency: 4 }),
+    baseTask({ id: "c", estimatedMinutes: 30, urgency: 3 }),
+  ];
+
+  it("places no more task minutes than the stated free time and says why the rest is left out", () => {
+    const result = generateSchedule(baseInput({ tasks: threeTasks, policy: { taskMinutesBudget: 90 } }));
+    expect(taskMinutes(result)).toBeLessThanOrEqual(90);
+    expect(placedIds(result)).toEqual(["a", "c"]);
+    expect(result.unscheduled).toEqual([{ taskId: "b", reason: TIME_BUDGET_REASON }]);
+  });
+
+  it("plans nothing when the student has no free time", () => {
+    const result = generateSchedule(baseInput({ tasks: threeTasks, policy: { taskMinutesBudget: 0 } }));
+    expect(placedIds(result)).toEqual([]);
+    expect(result.unscheduled.every((item) => item.reason === TIME_BUDGET_REASON)).toBe(true);
+  });
+
+  it("puts weekly-target work first on a short day", () => {
+    const tasks = [baseTask({ id: "essay", estimatedMinutes: 60, urgency: 5 }), baseTask({ id: "gym", estimatedMinutes: 60, urgency: 2 })];
+    const result = generateSchedule(baseInput({ tasks, policy: { taskMinutesBudget: 60, weeklyTargetTaskIds: ["gym"] } }));
+    expect(placedIds(result)).toEqual(["gym"]);
+    expect(result.unscheduled).toEqual([{ taskId: "essay", reason: TIME_BUDGET_REASON }]);
+  });
+
+  it("keeps normal ranking on a full day, with only the bounded boost", () => {
+    const tasks = [baseTask({ id: "essay", estimatedMinutes: 60, urgency: 5 }), baseTask({ id: "gym", estimatedMinutes: 60, urgency: 2 })];
+    const result = generateSchedule(baseInput({ tasks, policy: { weeklyTargetTaskIds: ["gym"] } }));
+    expect(placedIds(result)).toEqual(["essay", "gym"]);
+    expect(result.blocks.find((block) => block.taskId === "essay")!.startTime < result.blocks.find((block) => block.taskId === "gym")!.startTime).toBe(true);
+  });
+
+  it("on low energy keeps weekly-target work as a shorter session and defers other high-energy work", () => {
+    const tasks = [baseTask({ id: "gym", estimatedMinutes: 60, energyLevel: "high" }), baseTask({ id: "project", estimatedMinutes: 60, energyLevel: "high" })];
+    const result = generateSchedule(baseInput({ tasks, policy: { lowEnergy: true, maxBlockMinutes: 30, weeklyTargetTaskIds: ["gym"] } }));
+    expect(placedIds(result)).toEqual(["gym"]);
+    expect(taskMinutes(result)).toBe(30);
+    expect(result.unscheduled).toEqual([{ taskId: "project", reason: LOW_ENERGY_DEFERRAL_REASON }]);
   });
 });

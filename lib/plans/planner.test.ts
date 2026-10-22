@@ -308,3 +308,30 @@ describe("buildDraftPlan policy (Day 9)", () => {
     expect(buildDraftPlan(baseInput({ policy: { bufferPercent: 10 } })).bufferMinutes).toBe(30);
   });
 });
+
+describe("buildDraftPlan morning check-in (Phase 2 Step 6)", () => {
+  it("counts preserved manual blocks against the stated free time", () => {
+    const result = buildDraftPlan(baseInput({
+      tasks: [baseTask({ id: "manual" }), baseTask({ id: "other" })],
+      existingManualBlocks: [{ id: "mb", task_id: "manual", kind: "task", title: "Task 1", start_time: "09:00:00", end_time: "10:00:00", is_manual: true }],
+      policy: { taskMinutesBudget: 90 },
+    }));
+    expect(result.blocks.filter((block) => block.kind === "task").map((block) => block.taskId)).toEqual(["manual"]);
+    expect(result.unscheduled.map((item) => item.taskId)).toEqual(["other"]);
+  });
+
+  it("never places work over a class or a calendar event", () => {
+    const result = buildDraftPlan(baseInput({
+      availabilityRules: [
+        { weekday: 1, kind: "working", startTime: "09:00", endTime: "14:00" },
+        { weekday: 1, kind: "class", startTime: "09:00", endTime: "11:00" },
+      ],
+      calendarEvents: [{ googleEventId: "g1", title: "Exam", startTime: "11:00", endTime: "12:00" }],
+      tasks: [baseTask({ id: "a" }), baseTask({ id: "b" })],
+      policy: { taskMinutesBudget: 120, lowEnergy: true, maxBlockMinutes: 45 },
+    }));
+    const work = result.blocks.filter((block) => block.kind === "task");
+    expect(work.length).toBeGreaterThan(0);
+    expect(work.every((block) => block.startTime >= "12:00:00")).toBe(true);
+  });
+});
