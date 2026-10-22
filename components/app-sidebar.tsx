@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  CalendarCheck, ChartColumn, Flag, FolderKanban, ListTodo, LogOut, Menu, NotebookPen, Settings, Sparkles, Target,
+  CalendarCheck, CalendarDays, ChartColumn, Flag, FolderKanban, ListTodo, LogOut, Menu, NotebookPen, Settings, Sparkles, Target,
   type LucideIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -13,6 +13,7 @@ import { SIDEBAR_COLLAPSED_CLASS, SIDEBAR_STORAGE_KEY } from "@/lib/theme";
 
 const navigation: Array<{ href: string; label: string; icon: LucideIcon }> = [
   { href: "/today", label: "Today", icon: CalendarCheck },
+  { href: "/week", label: "Week", icon: CalendarDays },
   { href: "/ai", label: "AI Assistant", icon: Sparkles },
   { href: "/tasks", label: "Tasks", icon: ListTodo },
   { href: "/goals", label: "Goals", icon: Target },
