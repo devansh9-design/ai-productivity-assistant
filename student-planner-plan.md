@@ -56,14 +56,14 @@ All new tables follow the existing pattern: `user_id` defaults to `auth.uid()`, 
 - **`progress_logs`**: dated metric values (`goal_metric_id`, `log_date`, `value`, `note`), entered in the evening log.
 - **`checkins`**: allow a `morning` type with `available_minutes`, `energy_level` and `notes`. Classes and exams stay in fixed commitments.
 - **`daily_feedback`**: one row per user per day. The AI's summary, suggestions, and the adjustment proposals and their outcome (applied or dismissed).
-- **Migration of old data:** existing projects and milestones become phases of their goal in **Step 11**, when their pages are removed. Until then they stay as they are, so there is never a second live copy. Nothing is deleted.
+- **Old data:** the Projects and Milestones features are removed in **Step 11**. Their tables only held Phase 1 test rows, so they are not moved into phases (decided 2026-10-22). The tables stay untouched until a later cleanup drops them. Nothing is deleted.
 
 ## 4. Build steps
 
 Each step is a separate branch and PR, sized for one or two working sessions.
 
 ### Step 1: Data model v2
-- Add migrations for every change in section 3, except moving old projects and milestones into phases (Step 11).
+- Add migrations for every change in section 3. (Old projects and milestones are not migrated; see Step 11.)
 - Add database tests: isolation between two users, routine occurrences can't be duplicated, metric validation.
 - **Done when:** CI applies all migrations to a clean database, every database test passes, the live migration is applied, and the history matches the repo.
 
@@ -119,7 +119,7 @@ Each step is a separate branch and PR, sized for one or two working sessions.
 - **Done when:** the gym and DSA goals each show a correct chart from logged data, and the month view loads in under 1 s.
 
 ### Step 11: Navigation and per-page UI
-- New navigation: **Today · Week · Month · Goals · AI · Review · Settings**. Projects and Milestones are removed, and their data becomes roadmap phases of their goals (a migration in this step).
+- New navigation: **Today · Week · Month · Goals · AI · Review · Settings**. The Projects, Milestones and Tasks pages are removed. Their old rows stay in the database unused (no migration).
 - Analytics is folded into goal progress and the week view.
 - This is the step for **your per-page UI instructions**, page by page, starting with Today.
 - **Done when:** every page passes a desktop, phone and dark-mode check, with no dead pages or links left.

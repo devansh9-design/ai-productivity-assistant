@@ -10,8 +10,6 @@ function makeTask(overrides: Partial<Task>): Task {
     id: overrides.id ?? crypto.randomUUID(),
     user_id: "user-1",
     goal_id: null,
-    project_id: null,
-    milestone_id: null,
     routine_id: null,
     occurrence_date: null,
     title: "Task",

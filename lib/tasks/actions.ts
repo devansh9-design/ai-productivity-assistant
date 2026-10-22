@@ -61,8 +61,6 @@ export async function createTask(formData: FormData) {
     estimated_minutes: estimatedMinutes,
     due_date: dueDate,
     goal_id: optionalText(formData, "goal_id"),
-    project_id: optionalText(formData, "project_id"),
-    milestone_id: optionalText(formData, "milestone_id"),
   });
   if (error) return { error: `Could not add the task: ${error.message}` };
 

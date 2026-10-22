@@ -13,14 +13,14 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 const task = (id: string, overrides: Partial<AnalyticsTask> = {}): AnalyticsTask => ({
   id, title: `Task ${id}`, category: null, status: "todo", status_reason: null, due_date: null,
   completed_at: null, updated_at: "2026-09-01T00:00:00Z", actual_minutes: null,
-  goal_id: null, project_id: null, milestone_id: null, ...overrides,
+  goal_id: null, ...overrides,
 });
 
 function facts(empty: boolean) {
   return buildWeekFacts({
     range: weekRange("2026-10-05"), today: "2026-10-15", timeZone: "UTC",
     tasks: empty ? [] : [task("done1", { title: "Arrays drill", status: "completed", completed_at: "2026-10-06T10:00:00Z", actual_minutes: 30 })],
-    sessions: [], plans: [], planBlocks: [], goals: [], projects: [], milestones: [],
+    sessions: [], plans: [], planBlocks: [], goals: [],
   }, []);
 }
 

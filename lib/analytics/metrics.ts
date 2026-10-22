@@ -26,8 +26,6 @@ export interface AnalyticsTask {
   updated_at: string;
   actual_minutes: number | null;
   goal_id: string | null;
-  project_id: string | null;
-  milestone_id: string | null;
 }
 
 export interface AnalyticsSession {
@@ -54,8 +52,6 @@ export interface AnalyticsPlanBlock {
 }
 
 export interface AnalyticsGoal { id: string; title: string; status: string }
-export interface AnalyticsProject { id: string; goal_id: string | null }
-export interface AnalyticsMilestone { id: string; title: string; status: string; due_date: string | null; project_id: string | null }
 
 export interface AnalyticsInput {
   range: AnalyticsRange;
@@ -67,8 +63,6 @@ export interface AnalyticsInput {
   plans: AnalyticsPlan[];
   planBlocks: AnalyticsPlanBlock[];
   goals: AnalyticsGoal[];
-  projects: AnalyticsProject[];
-  milestones: AnalyticsMilestone[];
 }
 
 export interface DailyPoint {
@@ -87,7 +81,6 @@ export interface ProgressItem {
   total: number;
   /** Null when nothing countable is linked. */
   percent: number | null;
-  dueDate?: string | null;
 }
 
 export interface AnalyticsResult {
@@ -104,7 +97,6 @@ export interface AnalyticsResult {
   reasons: Bar[];
   reasonTaskCount: number;
   goals: ProgressItem[];
-  milestones: ProgressItem[];
   excluded: { open: number; empty: number; overlong: number };
 }
 
@@ -248,22 +240,10 @@ export function computeAnalytics(input: AnalyticsInput): AnalyticsResult {
     ? [...grouped.slice(0, TOP_REASONS), { label: "Other", value: grouped.slice(TOP_REASONS).reduce((total, bar) => total + bar.value, 0) }]
     : grouped;
 
-  // Goal progress counts tasks linked directly or through their project or milestone.
-  const projectGoal = new Map(input.projects.map((project) => [project.id, project.goal_id]));
-  const milestoneProject = new Map(input.milestones.map((milestone) => [milestone.id, milestone.project_id]));
-  const goalOf = (task: AnalyticsTask): string | null =>
-    task.goal_id
-    ?? (task.project_id ? projectGoal.get(task.project_id) ?? null : null)
-    ?? (task.milestone_id ? projectGoal.get(milestoneProject.get(task.milestone_id) ?? "") ?? null : null);
-
   const goals = input.goals
     .filter((goal) => goal.status === "active")
-    .map((goal) => progress(goal.id, goal.title, input.tasks.filter((task) => goalOf(task) === goal.id)))
+    .map((goal) => progress(goal.id, goal.title, input.tasks.filter((task) => task.goal_id === goal.id)))
     .sort((a, b) => a.title.localeCompare(b.title));
-  const milestones = input.milestones
-    .filter((milestone) => milestone.status === "active")
-    .map((milestone) => ({ ...progress(milestone.id, milestone.title, input.tasks.filter((task) => task.milestone_id === milestone.id)), dueDate: milestone.due_date }))
-    .sort((a, b) => (a.dueDate ?? "9999-12-31").localeCompare(b.dueDate ?? "9999-12-31") || a.title.localeCompare(b.title));
 
   return {
     loggedMinutes: sum(entries),
@@ -278,7 +258,6 @@ export function computeAnalytics(input: AnalyticsInput): AnalyticsResult {
     reasons,
     reasonTaskCount: shelved.length,
     goals,
-    milestones,
     excluded,
   };
 }
