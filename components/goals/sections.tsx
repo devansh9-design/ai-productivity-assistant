@@ -7,6 +7,8 @@ import {
 } from "@/lib/goals/actions";
 import { daysBetween, formatMinutes, ISO_DAYS, mondayOf, weeklyMinutes } from "@/lib/goals/roadmap";
 import type { MetricProgress } from "@/lib/evening/log";
+import { phaseStatusOn, type MetricSeries } from "@/lib/goals/progress";
+import { MetricChart } from "@/components/goals/metric-chart";
 import type { Goal, GoalMetric, GoalPhase, Routine, WeeklyTarget } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -105,7 +107,9 @@ function MetricFields({ metric }: { metric?: GoalMetric }) {
   );
 }
 
-export function MetricsSection({ goal, metrics, progress }: { goal: Goal; metrics: GoalMetric[]; progress: Record<string, MetricProgress> }) {
+export interface MetricChartData { series: MetricSeries | null; finish: string }
+
+export function MetricsSection({ goal, metrics, progress, charts }: { goal: Goal; metrics: GoalMetric[]; progress: Record<string, MetricProgress>; charts: Record<string, MetricChartData> }) {
   return (
     <Section id="metrics-title" title="Metrics" description="The numbers that show progress. You'll log them in the evening, and they feed the progress charts.">
       {metrics.length > 0 && (
@@ -124,6 +128,12 @@ export function MetricsSection({ goal, metrics, progress }: { goal: Goal; metric
                 {amount(metric.baseline_value, metric.unit)} → {amount(metric.target_value, metric.unit)} · {metric.aggregation === "sum" ? "adds up daily amounts" : "uses the latest reading"}
               </p>
               <MetricProgressLine metric={metric} progress={progress[metric.id]} />
+              {charts[metric.id]?.series && (
+                <>
+                  <p className="mt-1 text-xs font-medium text-slate-700">{charts[metric.id].finish}</p>
+                  <MetricChart name={metric.name} unit={metric.unit} series={charts[metric.id].series!} />
+                </>
+              )}
             </ItemRow>
           ))}
         </ul>
@@ -222,7 +232,7 @@ export function RoadmapSection({ goal, phases, today }: { goal: Goal; phases: Go
       {phases.length > 0 && (
         <ol className="mt-4 space-y-2">
           {phases.map((phase, index) => {
-            const current = today >= phase.start_date && today <= phase.end_date;
+            const status = phaseStatusOn(phase, today);
             return (
               <ItemRow key={phase.id} deleteAction={deletePhase} hidden={{ id: phase.id, goal_id: goal.id }} deleteLabel={`Delete phase ${phase.title}`}
                 editForm={(
@@ -235,7 +245,9 @@ export function RoadmapSection({ goal, phases, today }: { goal: Goal; phases: Go
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`inline-block h-2.5 w-2.5 rounded-full ${PHASE_COLORS[index % PHASE_COLORS.length]}`} aria-hidden="true" />
                   <p className="text-sm font-semibold text-slate-900">{index + 1}. {phase.title}</p>
-                  {current && <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">Now</span>}
+                  {status === "active" && <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">Now</span>}
+                  {status === "completed" && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">Done ✓</span>}
+                  {status === "upcoming" && <span className="text-xs font-medium text-slate-500">Upcoming</span>}
                 </div>
                 <p className="text-xs text-slate-500">{shortDate(phase.start_date)} – {shortDate(phase.end_date)} · {Math.ceil(daysBetween(phase.start_date, phase.end_date) / 7)} weeks</p>
                 {phase.focus && <p className="mt-1 text-sm text-slate-600">{phase.focus}</p>}
