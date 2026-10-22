@@ -5,6 +5,11 @@ import { StatusBadge, PriorityBadge, EmptyState, RoutineBadge } from "@/componen
 import { TaskActionForm } from "@/components/task-action-form";
 import { TaskTimer } from "@/components/task-timer";
 import { EveningLogForm } from "@/components/evening-log-form";
+import { NewTaskForm } from "@/components/new-task-form";
+import { TodayCalendar } from "@/components/today-calendar";
+import { MonthCalendar, monthLabel } from "@/components/month-calendar";
+import { loadMonth } from "@/lib/month/load";
+import { monthOf, type MonthCell } from "@/lib/month/view";
 import { DailyFeedbackCard, type FeedbackCardData } from "@/components/daily-feedback-card";
 import { loadDayFacts, loadFeedbackState } from "@/lib/feedback/load";
 import { dayLine, describeCandidate, sessionsLine, targetLine } from "@/lib/feedback/daily";
@@ -106,7 +111,15 @@ export default async function TodayPage() {
     supabase.from("checkins").select("*").eq("checkin_date", todayISODate).eq("type", "morning").maybeSingle<Checkin>(),
   ]);
 
-  const personalization = await loadPersonalization(supabase, timeZone);
+  const [personalization, { data: goalOptions }, monthWeeks] = await Promise.all([
+    loadPersonalization(supabase, timeZone),
+    supabase.from("goals").select("id,title").eq("status", "active").order("created_at").returns<Array<{ id: string; title: string }>>(),
+    // The calendar beside Today; the page still works if it can't load.
+    loadMonth(supabase, monthOf(todayISODate), todayISODate, timeZone).catch((error: unknown): MonthCell[][] | null => {
+      log("error", "today.calendar_failed", errorFields(error));
+      return null;
+    }),
+  ]);
   let weekPlan: SavedWeeklyPlan | null = null;
   try {
     weekPlan = await loadWeeklyPlan(supabase, mondayOf(todayISODate));
@@ -192,7 +205,10 @@ export default async function TodayPage() {
   }).format(new Date());
 
   return (
-    <section aria-labelledby="page-title" className="mx-auto max-w-4xl">
+    // The heading and today's cards fill the left column; the month calendar has its own
+    // column at the top right, level with the heading (below everything on a phone).
+    <section aria-labelledby="page-title" className="grid gap-x-8 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="mx-auto w-full min-w-0 max-w-4xl">
       <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">{formattedDate}</p>
       <h1 id="page-title" className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
         Today
@@ -234,6 +250,8 @@ export default async function TodayPage() {
         }))}
       />
 
+      <NewTaskForm goals={goalOptions ?? []} today={todayISODate} />
+
       {tasksError && (
         <p role="alert" className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">
           Could not load today&apos;s tasks: {tasksError.message}
@@ -244,16 +262,8 @@ export default async function TodayPage() {
         <div className="mt-6">
           <EmptyState
             title="Nothing scheduled for today"
-            description="Add a task with today's date, or set a due date on something in your backlog, to see it here."
+            description="Use Add a task above to add something due today."
           />
-          <div className="mt-4 flex justify-center">
-            <Link
-              href="/tasks"
-              className="btn-primary"
-            >
-              Go to Tasks
-            </Link>
-          </div>
         </div>
       )}
 
@@ -319,6 +329,19 @@ export default async function TodayPage() {
       )}
       {feedbackCard && <DailyFeedbackCard data={feedbackCard} />}
       <RecentReflections entries={recentJournalEntries ?? []} checkinsByDate={checkinsByDate} />
+      </div>
+
+      <aside aria-label="Month calendar" className="mt-8 self-start lg:sticky lg:top-6 lg:mt-0">
+        {monthWeeks ? (
+          <TodayCalendar
+            title={monthLabel(monthOf(todayISODate))}
+            compact={<MonthCalendar month={monthOf(todayISODate)} weeks={monthWeeks} compact />}
+            full={<MonthCalendar month={monthOf(todayISODate)} weeks={monthWeeks} />}
+          />
+        ) : (
+          <p role="alert" className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">The calendar could not be loaded. Refresh to try again.</p>
+        )}
+      </aside>
     </section>
   );
 }

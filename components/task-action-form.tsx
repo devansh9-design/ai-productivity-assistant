@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { updateTaskStatus } from "@/lib/tasks/actions";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { deleteTask, updateTaskStatus } from "@/lib/tasks/actions";
 import type { Task } from "@/lib/types";
 
-type Mode = "idle" | "completing" | "skipping" | "deferring";
+type Mode = "idle" | "completing" | "skipping" | "deferring" | "deleting";
 
 const BUTTON_CLASS =
   "rounded-lg border px-3 py-1 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60";
@@ -15,6 +15,16 @@ export function TaskActionForm({ task }: { task: Task }) {
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const deleteButton = useRef<HTMLButtonElement>(null);
+  const confirmDeleteButton = useRef<HTMLButtonElement>(null);
+  const wasDeleting = useRef(false);
+
+  // The clicked Delete button disappears, so focus moves to "Yes, delete", and back to Delete on Cancel.
+  useEffect(() => {
+    if (mode === "deleting") confirmDeleteButton.current?.focus();
+    else if (wasDeleting.current) deleteButton.current?.focus();
+    wasDeleting.current = mode === "deleting";
+  }, [mode]);
 
   function reset() {
     setMode("idle");
@@ -40,6 +50,42 @@ export function TaskActionForm({ task }: { task: Task }) {
         setError(submitError instanceof Error ? submitError.message : "Could not update the task.");
       }
     });
+  }
+
+  function remove() {
+    setError(null);
+    const formData = new FormData();
+    formData.set("id", task.id);
+    startTransition(async () => {
+      try {
+        const result = await deleteTask(formData);
+        if (result && "error" in result && result.error) setError(result.error);
+        else reset();
+      } catch {
+        setError("Could not delete the task.");
+      }
+    });
+  }
+
+  if (mode === "deleting") {
+    return (
+      <div role="group" aria-label={`Delete ${task.title}?`} className="flex flex-wrap items-center gap-2">
+        <p className="text-sm text-slate-700">Delete this task? This can&apos;t be undone.</p>
+        <button
+          type="button"
+          disabled={isPending}
+          ref={confirmDeleteButton}
+          onClick={remove}
+          className={`${BUTTON_CLASS} border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100`}
+        >
+          {isPending ? "Deleting…" : "Yes, delete"}
+        </button>
+        <button type="button" onClick={reset} className={`${BUTTON_CLASS} border-slate-300 text-slate-700 hover:bg-slate-100`}>
+          Cancel
+        </button>
+        {error && <p className="w-full text-sm text-rose-600">{error}</p>}
+      </div>
+    );
   }
 
   if (mode === "completing") {
@@ -159,6 +205,19 @@ export function TaskActionForm({ task }: { task: Task }) {
           className={`${BUTTON_CLASS} border-slate-300 text-slate-700 hover:bg-slate-100`}
         >
           {isPending ? "Saving…" : "Reopen"}
+        </button>
+      )}
+      {/* A routine's session is skipped rather than deleted, so only one-off tasks offer Delete. */}
+      {!task.routine_id && (
+        <button
+          type="button"
+          disabled={isPending}
+          ref={deleteButton}
+          onClick={() => setMode("deleting")}
+          aria-label={`Delete ${task.title}`}
+          className={`${BUTTON_CLASS} border-rose-200 text-rose-700 hover:bg-rose-50`}
+        >
+          Delete
         </button>
       )}
       {error && <p className="w-full text-sm text-rose-600">{error}</p>}

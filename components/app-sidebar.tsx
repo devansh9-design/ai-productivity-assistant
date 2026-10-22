@@ -4,24 +4,22 @@ import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  CalendarCheck, CalendarDays, CalendarRange, ChartColumn, Flag, FolderKanban, ListTodo, LogOut, Menu, NotebookPen, Settings, Sparkles, Target,
+  CalendarCheck, CalendarDays, CalendarRange, LogOut, Menu, NotebookPen, Settings, Sparkles, Target,
   type LucideIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { ThemeSwitch } from "@/components/theme-switch";
 import { SIDEBAR_COLLAPSED_CLASS, SIDEBAR_STORAGE_KEY } from "@/lib/theme";
 
+// Phase 2 order (student-planner-plan.md, Step 11). Tasks, Projects, Milestones
+// and Analytics are no longer in the menu; their pages still open by address.
 const navigation: Array<{ href: string; label: string; icon: LucideIcon }> = [
   { href: "/today", label: "Today", icon: CalendarCheck },
   { href: "/week", label: "Week", icon: CalendarDays },
   { href: "/month", label: "Month", icon: CalendarRange },
-  { href: "/ai", label: "AI Assistant", icon: Sparkles },
-  { href: "/tasks", label: "Tasks", icon: ListTodo },
   { href: "/goals", label: "Goals", icon: Target },
-  { href: "/projects", label: "Projects", icon: FolderKanban },
-  { href: "/milestones", label: "Milestones", icon: Flag },
-  { href: "/analytics", label: "Analytics", icon: ChartColumn },
-  { href: "/review", label: "Weekly review", icon: NotebookPen },
+  { href: "/ai", label: "AI", icon: Sparkles },
+  { href: "/review", label: "Review", icon: NotebookPen },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

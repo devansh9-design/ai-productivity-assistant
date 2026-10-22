@@ -27,15 +27,14 @@ export type AIPlanningContext = {
   incomplete_tasks: Array<{
     id: string; title: string; description: string | null; status: string; priority: string;
     due_date: string | null; estimated_minutes: number | null; energy_level: string | null;
-    goal_id: string | null; project_id: string | null; milestone_id: string | null;
+    goal_id: string | null;
   }>;
   scheduled_tasks: Array<{
     id: string; title: string; description: string | null; status: string; priority: string;
     due_date: string | null; estimated_minutes: number | null; energy_level: string | null;
-    goal_id: string | null; project_id: string | null; milestone_id: string | null;
+    goal_id: string | null;
   }>;
   goals: Array<{ id: string; title: string; description: string | null; status: string; incomplete_task_count: number }>;
-  milestones: Array<{ id: string; title: string; description: string | null; due_date: string | null; status: string; incomplete_task_count: number }>;
   recent_checkins: Array<{
     date: string; mood: number | null; energy_level: string | null; wins: string | null;
     lesson: string | null; distractions: string | null; reflection: string | null;
@@ -55,15 +54,14 @@ export async function getAIPlanningContext(): Promise<AIPlanningContext> {
   const date = getTodayISODate(timezone, now);
   const currentLocalTime = getLocalTimeHHMM(timezone, now);
 
-  const [profileResult, tasksResult, goalsResult, milestonesResult, planResult, checkinsResult, journalsResult, availabilityResult, commitmentsResult] =
+  const [profileResult, tasksResult, goalsResult, planResult, checkinsResult, journalsResult, availabilityResult, commitmentsResult] =
     await Promise.all([
       supabase.from("profiles").select("email").eq("id", user.id).maybeSingle(),
       supabase.from("tasks")
-        .select("id,title,description,status,priority,due_date,estimated_minutes,energy_level,goal_id,project_id,milestone_id")
+        .select("id,title,description,status,priority,due_date,estimated_minutes,energy_level,goal_id")
         .neq("status", "completed").neq("status", "skipped")
         .order("due_date", { ascending: true }).limit(100),
       supabase.from("goals").select("id,title,description,status").order("created_at", { ascending: true }).limit(50),
-      supabase.from("milestones").select("id,title,description,due_date,status").order("due_date", { ascending: true }).limit(100),
       supabase.from("daily_plans").select("id,version,status,buffer_minutes")
         .eq("plan_date", date).in("status", ["draft", "confirmed"])
         .order("version", { ascending: false }).limit(1).maybeSingle(),
@@ -76,15 +74,13 @@ export async function getAIPlanningContext(): Promise<AIPlanningContext> {
     ]);
 
   const firstError = profileResult.error ?? tasksResult.error ?? goalsResult.error ??
-    milestonesResult.error ?? planResult.error ?? checkinsResult.error ?? journalsResult.error ?? availabilityResult.error ?? commitmentsResult.error;
+    planResult.error ?? checkinsResult.error ?? journalsResult.error ?? availabilityResult.error ?? commitmentsResult.error;
   if (firstError) throw new Error("Could not load AI context: " + firstError.message);
 
   const tasks = tasksResult.data ?? [];
   const goalCounts = new Map<string, number>();
-  const milestoneCounts = new Map<string, number>();
   for (const task of tasks) {
     if (task.goal_id) goalCounts.set(task.goal_id, (goalCounts.get(task.goal_id) ?? 0) + 1);
-    if (task.milestone_id) milestoneCounts.set(task.milestone_id, (milestoneCounts.get(task.milestone_id) ?? 0) + 1);
   }
 
   let plan: AIPlanningContext["plan"] = null;
@@ -142,9 +138,6 @@ export async function getAIPlanningContext(): Promise<AIPlanningContext> {
     scheduled_tasks: scheduledTasks,
     goals: (goalsResult.data ?? []).map((goal) => ({
       ...goal, incomplete_task_count: goalCounts.get(goal.id) ?? 0,
-    })),
-    milestones: (milestonesResult.data ?? []).map((milestone) => ({
-      ...milestone, incomplete_task_count: milestoneCounts.get(milestone.id) ?? 0,
     })),
     recent_checkins: (checkinsResult.data ?? []).map((checkin) => ({
       date: checkin.checkin_date, mood: checkin.mood, energy_level: checkin.energy_level,

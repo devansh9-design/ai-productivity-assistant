@@ -30,35 +30,10 @@ export interface Goal {
   updated_at: string;
 }
 
-export interface Project {
-  id: string;
-  user_id: string;
-  goal_id: string | null;
-  title: string;
-  description: string | null;
-  status: EntityStatus;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Milestone {
-  id: string;
-  user_id: string;
-  project_id: string | null;
-  title: string;
-  description: string | null;
-  due_date: string | null;
-  status: EntityStatus;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface Task {
   id: string;
   user_id: string;
   goal_id: string | null;
-  project_id: string | null;
-  milestone_id: string | null;
   /** Set when the task was created from a routine, for that routine's occurrence_date. */
   routine_id: string | null;
   occurrence_date: string | null;

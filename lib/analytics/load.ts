@@ -3,14 +3,10 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   COMMITTED_PLAN_STATUSES,
-  computeAnalytics,
   type AnalyticsGoal,
   type AnalyticsInput,
-  type AnalyticsMilestone,
   type AnalyticsPlan,
   type AnalyticsPlanBlock,
-  type AnalyticsProject,
-  type AnalyticsResult,
   type AnalyticsSession,
   type AnalyticsTask,
 } from "@/lib/analytics/metrics";
@@ -45,29 +41,18 @@ async function fetchByIds<T>(ids: string[], query: (chunk: string[], from: numbe
   return rows;
 }
 
-const TASK_COLUMNS = "id,title,category,status,status_reason,due_date,completed_at,updated_at,actual_minutes,goal_id,project_id,milestone_id";
+const TASK_COLUMNS = "id,title,category,status,status_reason,due_date,completed_at,updated_at,actual_minutes,goal_id";
 const SESSION_COLUMNS = "id,task_id,started_at,ended_at,minutes";
 
 /**
- * Loads one user's rows through their RLS-scoped client and computes the
- * dashboard. Sessions are read for a window one day wider than the range on
+ * Loads one user's raw analytics rows through their RLS-scoped client, for
+ * the weekly review and daily feedback to compute from. Sessions are read for a window one day wider than the range on
  * each side (local days never differ from UTC by more than 14 hours); the
  * metrics then keep only those that fall on a local day in range. Sessions of
  * tasks that may use manual minutes are read in full, because any valid
  * timer session, even outside the range, means that task's manual minutes are
  * not counted.
  */
-export async function loadAnalytics(
-  supabase: SupabaseClient,
-  userId: string,
-  range: AnalyticsRange,
-  timeZone: string,
-  today: string,
-): Promise<AnalyticsResult> {
-  return computeAnalytics(await loadAnalyticsInput(supabase, userId, range, timeZone, today));
-}
-
-/** The raw rows behind the dashboard, for callers that need more than the computed result. */
 export async function loadAnalyticsInput(
   supabase: SupabaseClient,
   userId: string,
@@ -78,15 +63,13 @@ export async function loadAnalyticsInput(
   const windowStart = `${addDaysToISODate(range.from, -1)}T00:00:00Z`;
   const windowEnd = `${addDaysToISODate(range.to, 2)}T00:00:00Z`;
 
-  const [tasks, rangeSessions, plans, goals, projects, milestones] = await Promise.all([
+  const [tasks, rangeSessions, plans, goals] = await Promise.all([
     fetchAll<AnalyticsTask>((from, to) => supabase.from("tasks").select(TASK_COLUMNS).eq("user_id", userId).order("id").range(from, to)),
     fetchAll<AnalyticsSession>((from, to) => supabase.from("task_sessions").select(SESSION_COLUMNS).eq("user_id", userId)
       .gte("started_at", windowStart).lt("started_at", windowEnd).order("id").range(from, to)),
     fetchAll<AnalyticsPlan>((from, to) => supabase.from("daily_plans").select("id,plan_date,status,version").eq("user_id", userId)
       .gte("plan_date", range.from).lte("plan_date", range.to).in("status", [...COMMITTED_PLAN_STATUSES]).order("id").range(from, to)),
     fetchAll<AnalyticsGoal>((from, to) => supabase.from("goals").select("id,title,status").eq("user_id", userId).order("id").range(from, to)),
-    fetchAll<AnalyticsProject>((from, to) => supabase.from("projects").select("id,goal_id").eq("user_id", userId).order("id").range(from, to)),
-    fetchAll<AnalyticsMilestone>((from, to) => supabase.from("milestones").select("id,title,status,due_date,project_id").eq("user_id", userId).order("id").range(from, to)),
   ]);
 
   const [startMs, endMs] = [Date.parse(windowStart), Date.parse(windowEnd)];
@@ -108,6 +91,6 @@ export async function loadAnalyticsInput(
   return {
     range, today, timeZone, tasks,
     sessions: [...rangeSessions, ...candidateSessions],
-    plans, planBlocks, goals, projects, milestones,
+    plans, planBlocks, goals,
   };
 }

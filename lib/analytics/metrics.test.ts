@@ -15,7 +15,7 @@ const today = "2026-10-15";
 const task = (id: string, overrides: Partial<AnalyticsTask> = {}): AnalyticsTask => ({
   id, title: `Task ${id}`, category: null, status: "todo", status_reason: null, due_date: null,
   completed_at: null, updated_at: "2026-09-01T00:00:00Z", actual_minutes: null,
-  goal_id: null, project_id: null, milestone_id: null, ...overrides,
+  goal_id: null, ...overrides,
 });
 const session = (id: string, taskId: string, startedAt: string, minutes: number | null, open = false): AnalyticsSession => ({
   id, task_id: taskId, started_at: startedAt, ended_at: open ? null : startedAt, minutes,
@@ -47,7 +47,7 @@ const block = (planId: string, taskId: string | null, start: string, end: string
  * Streak: completions on 10-12, 13, 14, 15 => current 4, longest in range 4.
  * Overdue: t6 todo due 10-10 and t7 deferred due 10-01 => 2 (t8 is skipped).
  * Reasons: "Too tired" and "too  tired" group => 2; t9 is outside the range.
- * Goals: Placements = t1, t2 (via project), t3 (via milestone) => 2 of 3; the
+ * Goals: Placements = t1, t2, t3 => 2 of 3; the
  *   skipped t8 is left out. Gym has no tasks. The archived goal is hidden.
  */
 function sample(): AnalyticsInput {
@@ -57,9 +57,9 @@ function sample(): AnalyticsInput {
     timeZone: "UTC",
     tasks: [
       task("t1", { category: "DSA", status: "completed", completed_at: "2026-10-12T15:00:00Z", actual_minutes: 999, goal_id: "g1" }),
-      task("t2", { category: " dsa ", status: "completed", completed_at: "2026-10-13T12:00:00Z", actual_minutes: 45, project_id: "p1" }),
-      task("t3", { milestone_id: "m1" }),
-      task("t4", { category: "Research", status: "completed", completed_at: "2026-10-14T20:00:00Z", actual_minutes: 50, milestone_id: "m3" }),
+      task("t2", { category: " dsa ", status: "completed", completed_at: "2026-10-13T12:00:00Z", actual_minutes: 45, goal_id: "g1" }),
+      task("t3", { goal_id: "g1" }),
+      task("t4", { category: "Research", status: "completed", completed_at: "2026-10-14T20:00:00Z", actual_minutes: 50 }),
       task("t5", { status: "completed", completed_at: "2026-10-05T10:00:00Z", actual_minutes: 30 }),
       task("t6", { due_date: "2026-10-10" }),
       task("t7", { status: "deferred", status_reason: "Too tired", due_date: "2026-10-01", updated_at: "2026-10-13T21:00:00Z" }),
@@ -103,12 +103,6 @@ function sample(): AnalyticsInput {
       { id: "g1", title: "Placements", status: "active" },
       { id: "g2", title: "Archived goal", status: "archived" },
       { id: "g3", title: "Gym", status: "active" },
-    ],
-    projects: [{ id: "p1", goal_id: "g1" }],
-    milestones: [
-      { id: "m1", title: "Mock interviews", status: "active", due_date: "2026-10-20", project_id: "p1" },
-      { id: "m2", title: "Old milestone", status: "archived", due_date: "2026-09-01", project_id: null },
-      { id: "m3", title: "No date", status: "active", due_date: null, project_id: null },
     ],
   };
 }
@@ -159,14 +153,10 @@ describe("computeAnalytics: hand-checked sample week", () => {
     expect(result.excluded).toEqual({ open: 1, empty: 1, overlong: 1 });
   });
 
-  it("shows progress for active goals and milestones only, through the hierarchy", () => {
+  it("shows progress for active goals only", () => {
     expect(result.goals).toEqual([
       { id: "g3", title: "Gym", completed: 0, total: 0, percent: null },
       { id: "g1", title: "Placements", completed: 2, total: 3, percent: 67 },
-    ]);
-    expect(result.milestones).toEqual([
-      { id: "m1", title: "Mock interviews", completed: 0, total: 1, percent: 0, dueDate: "2026-10-20" },
-      { id: "m3", title: "No date", completed: 1, total: 1, percent: 100, dueDate: null },
     ]);
   });
 });
@@ -174,14 +164,14 @@ describe("computeAnalytics: hand-checked sample week", () => {
 describe("computeAnalytics edge cases", () => {
   it("returns zeros and nulls, never NaN, for an empty account", () => {
     const range = resolveAnalyticsRange({}, today);
-    const result = computeAnalytics({ range, today, timeZone: "UTC", tasks: [], sessions: [], plans: [], planBlocks: [], goals: [], projects: [], milestones: [] });
+    const result = computeAnalytics({ range, today, timeZone: "UTC", tasks: [], sessions: [], plans: [], planBlocks: [], goals: [] });
     expect(result).toEqual({
       loggedMinutes: 0, timerMinutes: 0, manualMinutes: 0,
       daily: range.days.map((date) => ({ date, plannedMinutes: null, loggedMinutes: 0 })),
       completion: { planned: 0, completedOnTime: 0, rate: null, daysCounted: 0 },
       missedPlanned: [],
       categories: [], overdueCount: 0, streak: { current: 0, longestInRange: 0 },
-      reasons: [], reasonTaskCount: 0, goals: [], milestones: [], excluded: { open: 0, empty: 0, overlong: 0 },
+      reasons: [], reasonTaskCount: 0, goals: [], excluded: { open: 0, empty: 0, overlong: 0 },
     });
   });
 

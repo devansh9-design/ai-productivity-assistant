@@ -5,7 +5,7 @@ import { buildWeekFacts, weekRange, type ReviewCheckin } from "@/lib/review/fact
 const task = (id: string, overrides: Partial<AnalyticsTask> = {}): AnalyticsTask => ({
   id, title: `Task ${id}`, category: null, status: "todo", status_reason: null, due_date: null,
   completed_at: null, updated_at: "2026-09-01T00:00:00Z", actual_minutes: null,
-  goal_id: null, project_id: null, milestone_id: null, ...overrides,
+  goal_id: null, ...overrides,
 });
 
 const checkin = (date: string, overrides: Partial<ReviewCheckin> = {}): ReviewCheckin => ({
@@ -14,7 +14,7 @@ const checkin = (date: string, overrides: Partial<ReviewCheckin> = {}): ReviewCh
 
 const empty = (overrides: Partial<AnalyticsInput> = {}): AnalyticsInput => ({
   range: weekRange("2026-10-05"), today: "2026-10-15", timeZone: "Asia/Kolkata",
-  tasks: [], sessions: [], plans: [], planBlocks: [], goals: [], projects: [], milestones: [], ...overrides,
+  tasks: [], sessions: [], plans: [], planBlocks: [], goals: [], ...overrides,
 });
 
 /**

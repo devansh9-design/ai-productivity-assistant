@@ -3,7 +3,7 @@ import { getSafeRedirectPath } from "./redirect";
 
 describe("getSafeRedirectPath", () => {
   it("uses an internal app path", () => {
-    expect(getSafeRedirectPath("/tasks?filter=today")).toBe("/tasks?filter=today");
+    expect(getSafeRedirectPath("/today?date=2026-10-22")).toBe("/today?date=2026-10-22");
   });
 
   it("rejects external and protocol-relative paths", () => {
