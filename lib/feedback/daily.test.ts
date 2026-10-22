@@ -140,3 +140,13 @@ describe("stored suggestions", () => {
     expect(parseStoredSuggestions({ not: "a list" })).toEqual([]);
   });
 });
+
+describe("routine sessions due", () => {
+  it("counts every routine day up to the date, even one whose task was never created", () => {
+    const facts = buildDayFacts(base({ routineTasks: [{ routineId: "r-dsa", occurrenceDate: "2026-10-19", status: "completed" }] }));
+    // Daily routine, Monday to Thursday: four due, one held.
+    expect(facts.goals.find((goal) => goal.goalId === "dsa")!.sessions).toEqual({ held: 1, dueSoFar: 4, plannedWeek: 7 });
+    // Gym on Mon/Wed/Fri: two due by Thursday, none created.
+    expect(facts.goals.find((goal) => goal.goalId === "gym")!.sessions).toEqual({ held: 0, dueSoFar: 2, plannedWeek: 3 });
+  });
+});

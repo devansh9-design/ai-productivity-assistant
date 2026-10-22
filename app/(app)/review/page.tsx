@@ -10,6 +10,10 @@ import { PlanForm } from "@/components/review/plan-form";
 import { SummaryCard } from "@/components/review/summary-card";
 import { WeekFactsView } from "@/components/review/week-facts";
 import { WeekPicker } from "@/components/review/week-picker";
+import { NextWeekTargets, type NextWeekGoal } from "@/components/review/next-week-targets";
+import { loadTargetPlanning } from "@/lib/review/targets-load";
+import { proposeTargets } from "@/lib/review/targets";
+import { weekTargetLine } from "@/lib/week/view";
 import { errorFields, log } from "@/lib/log";
 
 function weekLabel(weekStart: string): string {
@@ -25,13 +29,14 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
 
   let data;
   try {
-    const [facts, saved, plan, openTasks] = await Promise.all([
+    const [facts, saved, plan, openTasks, targetGoals] = await Promise.all([
       loadWeekFacts(supabase, user.id, reviewWeek, timeZone, today),
       loadSavedReview(supabase, reviewWeek),
       loadWeeklyPlan(supabase, planningWeek),
       loadOpenTasks(supabase, user.id),
+      loadTargetPlanning(supabase, reviewWeek, planningWeek),
     ]);
-    data = { facts, saved, plan, openTasks };
+    data = { facts, saved, plan, openTasks, targetGoals };
   } catch (error) {
     log("error", "review.load_failed", errorFields(error));
   }
@@ -53,7 +58,16 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
     );
   }
 
-  const { facts, saved, plan, openTasks } = data;
+  const { facts, saved, plan, openTasks, targetGoals } = data;
+  const reviewFinished = weekEnd(reviewWeek) < today;
+  const nextWeekGoals: NextWeekGoal[] = targetGoals.map((goal) => ({
+    goalId: goal.goalId,
+    title: goal.title,
+    lastWeek: goal.lastWeek.map((target) => weekTargetLine(target, reviewFinished)),
+    metrics: goal.metrics.map((metric) => ({ id: metric.id, name: metric.name, unit: metric.unit })),
+    existing: goal.existing,
+    proposal: proposeTargets(goal, planningWeek),
+  }));
   const suggestion = suggestWeeklyPlan(openTasks, new Set(facts.missedPlanned.map((task) => task.id)), planningWeek);
   const ranked = suggestion.ranked.map((task) => openTasks.find((open) => open.id === task.id)!);
   const openIds = new Set(openTasks.map((task) => task.id));
@@ -83,6 +97,14 @@ export default async function WeeklyReviewPage({ searchParams }: { searchParams:
         explanation="Generated only when you ask. The AI may only point to tasks completed this week and to the metrics above, and may not state numbers; anything else is rejected and a summary is written from your numbers instead."
       >
         <SummaryCard week={reviewWeek} saved={saved} facts={facts} generatedLabel={generatedLabel} />
+      </AnalyticsSection>
+
+      <AnalyticsSection
+        id="next-week-targets"
+        title={`Targets for ${weekLabel(planningWeek)}`}
+        explanation={`Goal by goal: how ${weekLabel(reviewWeek)} went, and a proposal for the week ahead. A met target stays (or grows a little if beaten comfortably); a missed one eases towards what you managed. Tick the goals to save; goals already set for that week are left alone unless ticked.`}
+      >
+        <NextWeekTargets planningWeek={planningWeek} reviewWeek={reviewWeek} goals={nextWeekGoals} />
       </AnalyticsSection>
 
       <AnalyticsSection

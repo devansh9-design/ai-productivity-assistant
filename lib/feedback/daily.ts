@@ -74,7 +74,8 @@ function isoWeekday(date: string): number {
   return ((new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7) + 1;
 }
 
-function routineRunsOn(routine: DayFactsInput["routines"][number], date: string): boolean {
+/** Whether an active routine falls on this day (ISO weekday, within its dates). */
+export function routineRunsOn(routine: Pick<DayFactsInput["routines"][number], "active" | "daysOfWeek" | "startDate" | "endDate">, date: string): boolean {
   return routine.active && routine.daysOfWeek.includes(isoWeekday(date)) && date >= routine.startDate && (routine.endDate === null || date <= routine.endDate);
 }
 
@@ -108,9 +109,12 @@ export function buildDayFacts(input: DayFactsInput): DayFacts {
     if (routines.length > 0) {
       const ids = new Set(routines.map((routine) => routine.id));
       const tasks = input.routineTasks.filter((task) => ids.has(task.routineId) && task.occurrenceDate <= input.date);
-      const plannedWeek = weekDays(weekStart).reduce((total, day) => total + routines.filter((routine) => routineRunsOn(routine, day)).length, 0);
+      const runs = (day: string) => routines.filter((routine) => routineRunsOn(routine, day)).length;
+      const plannedWeek = weekDays(weekStart).reduce((total, day) => total + runs(day), 0);
+      // Every routine day up to the date is due, whether or not its task was created (the day may never have been opened).
+      const dueSoFar = Math.max(tasks.length, weekDays(weekStart).filter((day) => day <= input.date).reduce((total, day) => total + runs(day), 0));
       if (plannedWeek > 0 || tasks.length > 0) {
-        sessions = { held: tasks.filter((task) => task.status === "completed").length, dueSoFar: tasks.length, plannedWeek };
+        sessions = { held: tasks.filter((task) => task.status === "completed").length, dueSoFar, plannedWeek };
       }
     }
     const numeric = targets.filter((target) => target.status !== "no_number");
