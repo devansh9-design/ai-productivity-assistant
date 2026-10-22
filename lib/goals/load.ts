@@ -1,7 +1,8 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Goal, GoalMetric, GoalPhase, Routine, WeeklyTarget } from "@/lib/types";
+import { metricProgress, type MetricProgress } from "@/lib/evening/log";
+import type { Goal, GoalMetric, GoalPhase, ProgressLog, Routine, WeeklyTarget } from "@/lib/types";
 
 export interface GoalSummary extends Goal {
   metricCount: number;
@@ -34,6 +35,8 @@ export interface GoalDetail {
   phases: GoalPhase[];
   targets: WeeklyTarget[];
   routines: Routine[];
+  /** Where each metric stands from its logged values, by metric id. */
+  progress: Record<string, MetricProgress>;
 }
 
 /** One goal and its whole roadmap, or null when it doesn't exist (or isn't the student's). */
@@ -49,5 +52,15 @@ export async function loadGoalDetail(supabase: SupabaseClient, goalId: string): 
   ]);
   const error = metrics.error ?? phases.error ?? targets.error ?? routines.error;
   if (error) throw new Error(`Could not load the goal's roadmap: ${error.message}`);
-  return { goal: goal.data, metrics: metrics.data ?? [], phases: phases.data ?? [], targets: targets.data ?? [], routines: routines.data ?? [] };
+  const metricRows = metrics.data ?? [];
+  const logs = metricRows.length > 0
+    ? await supabase.from("progress_logs").select("goal_metric_id,log_date,value").in("goal_metric_id", metricRows.map((metric) => metric.id))
+      .returns<Array<Pick<ProgressLog, "goal_metric_id" | "log_date" | "value">>>()
+    : { data: [], error: null };
+  if (logs.error) throw new Error(`Could not load the goal's progress: ${logs.error.message}`);
+  const progress = Object.fromEntries(metricRows.map((metric) => [
+    metric.id,
+    metricProgress(metric, (logs.data ?? []).filter((log) => log.goal_metric_id === metric.id)),
+  ]));
+  return { goal: goal.data, metrics: metricRows, phases: phases.data ?? [], targets: targets.data ?? [], routines: routines.data ?? [], progress };
 }

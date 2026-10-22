@@ -6,6 +6,7 @@ import {
   deleteMetric, deletePhase, deleteRoutine, deleteWeeklyTarget, saveMetric, savePhase, saveRoutine, saveWeeklyTarget, setRoutineActive,
 } from "@/lib/goals/actions";
 import { daysBetween, formatMinutes, ISO_DAYS, mondayOf, weeklyMinutes } from "@/lib/goals/roadmap";
+import type { MetricProgress } from "@/lib/evening/log";
 import type { Goal, GoalMetric, GoalPhase, Routine, WeeklyTarget } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -104,7 +105,7 @@ function MetricFields({ metric }: { metric?: GoalMetric }) {
   );
 }
 
-export function MetricsSection({ goal, metrics }: { goal: Goal; metrics: GoalMetric[] }) {
+export function MetricsSection({ goal, metrics, progress }: { goal: Goal; metrics: GoalMetric[]; progress: Record<string, MetricProgress> }) {
   return (
     <Section id="metrics-title" title="Metrics" description="The numbers that show progress. You'll log them in the evening, and they feed the progress charts.">
       {metrics.length > 0 && (
@@ -122,6 +123,7 @@ export function MetricsSection({ goal, metrics }: { goal: Goal; metrics: GoalMet
               <p className="text-xs text-slate-500">
                 {amount(metric.baseline_value, metric.unit)} → {amount(metric.target_value, metric.unit)} · {metric.aggregation === "sum" ? "adds up daily amounts" : "uses the latest reading"}
               </p>
+              <MetricProgressLine metric={metric} progress={progress[metric.id]} />
             </ItemRow>
           ))}
         </ul>
@@ -134,6 +136,25 @@ export function MetricsSection({ goal, metrics }: { goal: Goal; metrics: GoalMet
         </ActionForm>
       </AddForm>
     </Section>
+  );
+}
+
+/** Where the metric stands now, from the evening log. */
+function MetricProgressLine({ metric, progress }: { metric: GoalMetric; progress: MetricProgress | undefined }) {
+  if (!progress?.lastLoggedOn) return <p className="mt-1 text-xs text-slate-500">Nothing logged yet. Add today&apos;s number in the evening log.</p>;
+  return (
+    <div className="mt-1">
+      <p className="text-xs font-medium text-slate-800">
+        Now {amount(progress.current, metric.unit)}
+        {progress.percent !== null && ` · ${progress.percent}% of the way`} · last logged {shortDate(progress.lastLoggedOn)}
+      </p>
+      {progress.percent !== null && (
+        <div className="mt-1 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-slate-100" role="progressbar"
+          aria-label={`${metric.name} progress`} aria-valuenow={progress.percent} aria-valuemin={0} aria-valuemax={100}>
+          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${progress.percent}%` }} />
+        </div>
+      )}
+    </div>
   );
 }
 

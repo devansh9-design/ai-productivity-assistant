@@ -3,58 +3,48 @@
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/require-user";
-import { resolveCheckinInput } from "@/lib/checkins/validate";
+import { resolveEveningLogInput } from "@/lib/evening/log";
+import { loadEveningLog } from "@/lib/evening/load";
 import { resolveMorningCheckinInput } from "@/lib/checkins/morning";
 import { generateDraftPlan } from "@/lib/plans/actions";
 import { TIMEZONE_COOKIE_NAME } from "@/lib/tasks/timezone";
 import { DEFAULT_TIMEZONE, getTodayISODate } from "@/lib/tasks/timezone";
 
 /**
- * Saves (or edits, if one already exists) today's evening check-in.
- * Structured signals go to checkins; the free-text reflection goes to
- * journal_entries. Both are upserted on the user's local calendar date so
- * re-submitting the form the same evening edits today's entry instead of
- * creating a duplicate.
+ * Saves (or edits) today's evening log: what happened to each item, the day's
+ * metric numbers, and the optional mood, lesson and note, all in one
+ * transaction (save_evening_log). Only the tasks and metrics the log shows
+ * can be written. Failures are returned, not thrown, so production builds
+ * show the real message.
  */
-export async function saveEveningCheckin(formData: FormData) {
-  const { supabase, user } = await requireUser();
-  const input = resolveCheckinInput(formData);
-
+export async function saveEveningLog(formData: FormData) {
+  const { supabase } = await requireUser();
   const cookieStore = await cookies();
   const timeZone = cookieStore.get(TIMEZONE_COOKIE_NAME)?.value || DEFAULT_TIMEZONE;
   const todayISODate = getTodayISODate(timeZone);
 
-  const { data: checkin, error: checkinError } = await supabase
-    .from("checkins")
-    .upsert(
-      {
-        user_id: user.id,
-        checkin_date: todayISODate,
-        type: "evening",
-        mood: input.mood,
-        energy_level: input.energy_level,
-        distractions: input.distractions,
-        wins: input.wins,
-        lesson: input.lesson,
-      },
-      { onConflict: "user_id,checkin_date,type" },
-    )
-    .select()
-    .single();
-  if (checkinError) throw new Error(checkinError.message);
+  let input;
+  try {
+    const shown = await loadEveningLog(supabase, todayISODate, timeZone);
+    input = resolveEveningLogInput(formData, { tasks: shown.tasks, metricIds: shown.metrics.map((metric) => metric.id) });
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Check the evening log and try again." };
+  }
 
-  const { error: journalError } = await supabase.from("journal_entries").upsert(
-    {
-      user_id: user.id,
-      entry_date: todayISODate,
-      checkin_id: checkin.id,
-      reflection: input.reflection,
-    },
-    { onConflict: "user_id,entry_date" },
-  );
-  if (journalError) throw new Error(journalError.message);
+  const { error } = await supabase.rpc("save_evening_log", {
+    p_date: todayISODate,
+    p_items: input.items,
+    p_metrics: input.metrics,
+    p_evening: input.evening,
+  });
+  if (error) return { error: `Could not save the evening log: ${error.message}` };
 
   revalidatePath("/today");
+  revalidatePath("/tasks");
+  revalidatePath("/goals", "layout");
+  const logged = input.items.length;
+  const numbers = input.metrics.filter((metric) => metric.value !== null).length;
+  return { message: `Evening log saved: ${logged} ${logged === 1 ? "item" : "items"} and ${numbers} ${numbers === 1 ? "number" : "numbers"}.` };
 }
 
 /**

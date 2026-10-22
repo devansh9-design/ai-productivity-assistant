@@ -27,7 +27,7 @@ export default async function GoalPage({ params }: { params: Promise<{ id: strin
   const supabase = await createClient();
   const detail = await loadGoalDetail(supabase, id);
   if (!detail) notFound();
-  const { goal, metrics, phases, targets, routines } = detail;
+  const { goal, metrics, phases, targets, routines, progress } = detail;
   const today = getTodayISODate((await cookies()).get(TIMEZONE_COOKIE_NAME)?.value || DEFAULT_TIMEZONE);
   const daysLeft = goal.target_date ? daysBetween(today, goal.target_date) - 1 : null;
 
@@ -76,7 +76,7 @@ export default async function GoalPage({ params }: { params: Promise<{ id: strin
             today={today}
           />
         )}
-        <MetricsSection goal={goal} metrics={metrics} />
+        <MetricsSection goal={goal} metrics={metrics} progress={progress} />
         <RoadmapSection goal={goal} phases={phases} today={today} />
         <TargetsSection goal={goal} targets={targets} metrics={metrics} today={today} />
         <RoutinesSection goal={goal} routines={routines} metrics={metrics} />

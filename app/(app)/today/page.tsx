@@ -4,7 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { StatusBadge, PriorityBadge, EmptyState, RoutineBadge } from "@/components/status-badge";
 import { TaskActionForm } from "@/components/task-action-form";
 import { TaskTimer } from "@/components/task-timer";
-import { EveningCheckinForm } from "@/components/evening-checkin-form";
+import { EveningLogForm } from "@/components/evening-log-form";
+import { loadEveningLog, type EveningLogData } from "@/lib/evening/load";
 import { MorningCheckinForm, morningSummary } from "@/components/morning-checkin-form";
 import { RecentReflections } from "@/components/recent-reflections";
 import { ActionForm } from "@/components/action-form";
@@ -73,8 +74,6 @@ export default async function TodayPage() {
   const [
     { data: tasks, error: tasksError },
     { data: activeSessions },
-    { data: todayCheckin },
-    { data: todayJournalEntry },
     { data: recentJournalEntries },
     { data: recentCheckins },
     { data: allPlans },
@@ -84,13 +83,6 @@ export default async function TodayPage() {
   ] = await Promise.all([
     supabase.from("tasks").select("*").order("due_date", { ascending: true }).returns<Task[]>(),
     supabase.from("task_sessions").select("*").is("ended_at", null).returns<TaskSession[]>(),
-    supabase
-      .from("checkins")
-      .select("*")
-      .eq("checkin_date", todayISODate)
-      .eq("type", "evening")
-      .maybeSingle<Checkin>(),
-    supabase.from("journal_entries").select("*").eq("entry_date", todayISODate).maybeSingle<JournalEntry>(),
     supabase
       .from("journal_entries")
       .select("*")
@@ -117,6 +109,12 @@ export default async function TodayPage() {
     weekPlan = await loadWeeklyPlan(supabase, mondayOf(todayISODate));
   } catch (error) {
     log("error", "today.week_priorities_failed", errorFields(error));
+  }
+  let eveningLog: EveningLogData | null = null;
+  try {
+    eveningLog = await loadEveningLog(supabase, todayISODate, timeZone);
+  } catch (error) {
+    log("error", "today.evening_log_failed", errorFields(error));
   }
   const calendarPauseNote = [
     calendarSwitches?.planning_enabled === false && "Calendar planning is paused: plans do not include your Google Calendar events.",
@@ -286,7 +284,13 @@ export default async function TodayPage() {
         </>
       )}
 
-      <EveningCheckinForm existingCheckin={todayCheckin ?? null} existingReflection={todayJournalEntry ?? null} />
+      {eveningLog ? (
+        <EveningLogForm data={eveningLog} />
+      ) : (
+        <p role="alert" className="mt-8 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          The evening log could not be loaded. Refresh the page to try again.
+        </p>
+      )}
       <RecentReflections entries={recentJournalEntries ?? []} checkinsByDate={checkinsByDate} />
     </section>
   );
