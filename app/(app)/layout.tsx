@@ -3,18 +3,20 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { TimezoneSync } from "@/components/timezone-sync";
 import { ConnectionStatus } from "@/components/connection-status";
 import { createClient } from "@/lib/supabase/server";
+import { isOnboarded } from "@/lib/onboarding/load";
 
 export default async function ProtectedLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
+  if (!(await isOnboarded(supabase, user.id))) redirect("/onboarding");
 
   return (
     <div className="min-h-screen bg-slate-50">
       <TimezoneSync />
       <ConnectionStatus />
       <AppSidebar email={user.email ?? "Signed in"} />
-      <main className="px-4 py-8 md:ml-64 md:px-8 md:py-10">{children}</main>
+      <main className="app-main px-4 py-8 md:ml-64 md:px-8 md:py-10">{children}</main>
     </div>
   );
 }

@@ -56,7 +56,7 @@ export function AIHistory() {
   }, [loadHistory]);
 
   return (
-    <section aria-labelledby="ai-history-title" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+    <section aria-labelledby="ai-history-title" className="mt-6 card p-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">AI history</p>

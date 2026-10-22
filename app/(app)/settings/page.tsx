@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -15,7 +16,7 @@ import { DEFAULT_TIMEZONE, TIMEZONE_COOKIE_NAME } from "@/lib/tasks/timezone";
 import type { AvailabilityRule, FixedCommitment } from "@/lib/types";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const RULE_LABELS: Record<string, string> = { working: "working hours", high_focus: "high-focus window", exercise: "gym / exercise" };
+const RULE_LABELS: Record<string, string> = { working: "study / working hours", high_focus: "high-focus window", exercise: "gym / exercise", class: "class" };
 
 function shortTime(value: string) {
   return value.slice(0, 5);
@@ -57,28 +58,35 @@ export default async function SettingsPage({
       <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">Schedule preferences</p>
       <h1 id="page-title" className="mt-2 text-3xl font-bold tracking-tight text-slate-900">Settings</h1>
       <p className="mt-2 max-w-2xl text-slate-600">Set recurring availability and protected time. The daily scheduler only places tasks inside working windows.</p>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 card p-5">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Profile and weekly timetable</h2>
+          <p className="mt-1 text-sm text-slate-600">Your name, year, timezone, classes and study times, the same steps as when you signed up.</p>
+        </div>
+        <Link href="/onboarding?edit=1" className="btn-secondary">Edit profile and week</Link>
+      </div>
 
-      <ActionForm action={createAvailabilityRule} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+      <ActionForm action={createAvailabilityRule} className="mt-8 card p-6">
         <h2 className="text-lg font-semibold text-slate-900">Recurring schedule rule</h2>
         <p className="mt-1 text-sm text-slate-600">Use working windows for capacity, high-focus windows for demanding tasks, and the other types to reserve recurring time.</p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <label className="text-sm font-medium text-slate-800">Day
-            <select name="weekday" defaultValue="1" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900">
+            <select name="weekday" defaultValue="1" className="input mt-1">
               {WEEKDAYS.map((day, index) => <option key={day} value={index}>{day}</option>)}
             </select>
           </label>
           <label className="text-sm font-medium text-slate-800">Type
-            <select name="kind" defaultValue="working" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900">
-              <option value="working">Working hours</option><option value="high_focus">High-focus window</option><option value="sleep">Sleep</option><option value="meal">Meal</option><option value="travel">Travel</option><option value="break">Break</option><option value="exercise">Gym / exercise</option>
+            <select name="kind" defaultValue="working" className="input mt-1">
+              <option value="working">Study / working hours</option><option value="class">Class</option><option value="high_focus">High-focus window</option><option value="sleep">Sleep</option><option value="meal">Meal</option><option value="travel">Travel</option><option value="break">Break</option><option value="exercise">Gym / exercise</option>
             </select>
           </label>
-          <label className="text-sm font-medium text-slate-800">Start time<input name="start_time" type="time" required className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" /></label>
-          <label className="text-sm font-medium text-slate-800">End time<input name="end_time" type="time" required className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" /></label>
+          <label className="text-sm font-medium text-slate-800">Start time<input name="start_time" type="time" required className="input mt-1" /></label>
+          <label className="text-sm font-medium text-slate-800">End time<input name="end_time" type="time" required className="input mt-1" /></label>
         </div>
-        <ActionSubmitButton pendingLabel="Saving..." className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Add rule</ActionSubmitButton>
+        <ActionSubmitButton pendingLabel="Saving..." className="mt-4 btn-primary">Add rule</ActionSubmitButton>
       </ActionForm>
 
-      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-6">
+      <div className="mt-4 card p-6">
         <h2 className="text-lg font-semibold text-slate-900">Current recurring rules</h2>
         {rulesError && <p role="alert" className="mt-3 text-sm text-rose-700">Could not load schedule rules: {rulesError.message}</p>}
         {!rulesError && (rules ?? []).length === 0 && <p className="mt-3 text-sm text-slate-600">No working availability yet. Add working hours before generating a plan.</p>}
@@ -87,15 +95,15 @@ export default async function SettingsPage({
         </div>
       </div>
 
-      <ActionForm action={savePlanningPreferences} resetOnSuccess={false} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+      <ActionForm action={savePlanningPreferences} resetOnSuccess={false} className="mt-8 card p-6">
         <h2 className="text-lg font-semibold text-slate-900">Planning preferences</h2>
         <p className="mt-1 text-sm text-slate-600">These apply the next time you generate or replan today&apos;s schedule.</p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="text-sm font-medium text-slate-800">Buffer (% of free working time)
-            <input name="buffer_percent" type="number" min={0} max={50} step={1} required defaultValue={preferences.bufferPercent} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" />
+            <input name="buffer_percent" type="number" min={0} max={50} step={1} required defaultValue={preferences.bufferPercent} className="input mt-1" />
           </label>
           <label className="text-sm font-medium text-slate-800">Longest low-energy session (minutes)
-            <input name="low_energy_max_block_minutes" type="number" min={15} max={240} step={5} required defaultValue={preferences.lowEnergyMaxBlockMinutes} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" />
+            <input name="low_energy_max_block_minutes" type="number" min={15} max={240} step={5} required defaultValue={preferences.lowEnergyMaxBlockMinutes} className="input mt-1" />
           </label>
         </div>
         <label className="mt-4 flex items-start gap-2 text-sm text-slate-800">
@@ -109,23 +117,23 @@ export default async function SettingsPage({
             </span>
           </span>
         </label>
-        <ActionSubmitButton pendingLabel="Saving..." className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Save preferences</ActionSubmitButton>
+        <ActionSubmitButton pendingLabel="Saving..." className="mt-4 btn-primary">Save preferences</ActionSubmitButton>
       </ActionForm>
 
-      <ActionForm action={createFixedCommitment} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+      <ActionForm action={createFixedCommitment} className="mt-8 card p-6">
         <h2 className="text-lg font-semibold text-slate-900">Fixed commitment</h2>
         <p className="mt-1 text-sm text-slate-600">Commitments are immutable to the scheduler and always block task placement.</p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="text-sm font-medium text-slate-800 lg:col-span-2">Title<input name="title" required maxLength={200} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" /></label>
-          <label className="text-sm font-medium text-slate-800">Date<input name="commitment_date" type="date" required className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" /></label>
+          <label className="text-sm font-medium text-slate-800 lg:col-span-2">Title<input name="title" required maxLength={200} className="input mt-1" /></label>
+          <label className="text-sm font-medium text-slate-800">Date<input name="commitment_date" type="date" required className="input mt-1" /></label>
           <span className="hidden lg:block" />
-          <label className="text-sm font-medium text-slate-800">Start time<input name="start_time" type="time" required className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" /></label>
-          <label className="text-sm font-medium text-slate-800">End time<input name="end_time" type="time" required className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" /></label>
+          <label className="text-sm font-medium text-slate-800">Start time<input name="start_time" type="time" required className="input mt-1" /></label>
+          <label className="text-sm font-medium text-slate-800">End time<input name="end_time" type="time" required className="input mt-1" /></label>
         </div>
-        <ActionSubmitButton pendingLabel="Saving..." className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Add commitment</ActionSubmitButton>
+        <ActionSubmitButton pendingLabel="Saving..." className="mt-4 btn-primary">Add commitment</ActionSubmitButton>
       </ActionForm>
 
-      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-6">
+      <div className="mt-4 card p-6">
         <h2 className="text-lg font-semibold text-slate-900">Fixed commitments</h2>
         {commitmentsError && <p role="alert" className="mt-3 text-sm text-rose-700">Could not load commitments: {commitmentsError.message}</p>}
         {!commitmentsError && (commitments ?? []).length === 0 && <p className="mt-3 text-sm text-slate-600">No fixed commitments saved.</p>}
@@ -137,13 +145,13 @@ export default async function SettingsPage({
       <CalendarStatusCard connected={googleConnected} status={calendarStatus} timeZone={timeZone}
         oauthResult={googleStatus} oauthError={googleError} connectAction={connectGoogleCalendar} />
 
-      <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+      <div className="mt-8 card p-6">
         <h2 className="text-lg font-semibold text-slate-900">Your data</h2>
         <p className="mt-1 text-sm text-slate-600">
           Download everything you&apos;ve saved (goals, tasks, plans, check-ins, reviews and AI history) as one JSON file. Google sign-in tokens are never included.
         </p>
         <a href="/api/export" download
-          className="mt-4 inline-block rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50">
+          className="mt-4 inline-block btn-secondary">
           Download my data
         </a>
       </div>

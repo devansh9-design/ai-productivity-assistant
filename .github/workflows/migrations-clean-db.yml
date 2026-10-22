@@ -90,3 +90,9 @@ jobs:
 
       - name: Database behaviour tests (security hardening)
         run: psql -v ON_ERROR_STOP=1 -At -f scripts/db-tests/security-hardening.sql
+
+      - name: Database behaviour tests (student planner)
+        run: psql -v ON_ERROR_STOP=1 -At -f scripts/db-tests/student-planner.sql
+
+      - name: Database behaviour tests (student onboarding)
+        run: psql -v ON_ERROR_STOP=1 -At -f scripts/db-tests/student-onboarding.sql

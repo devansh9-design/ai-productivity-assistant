@@ -56,7 +56,7 @@ export function AuthForm() {
   const isSignUp = mode === "sign-up";
   return (
     <main className="flex min-h-screen items-center justify-center px-4 py-12">
-      <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8" aria-labelledby="auth-heading">
+      <section className="w-full max-w-md card p-6 shadow-sm sm:p-8" aria-labelledby="auth-heading">
         <p className="text-sm font-semibold text-indigo-600">Personal Assistant</p>
         <h1 id="auth-heading" className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
           {isSignUp ? "Create your account" : "Welcome back"}
@@ -68,11 +68,11 @@ export function AuthForm() {
         <form className="mt-6 space-y-4" onSubmit={onSubmit}>
           <label className="block text-sm font-medium text-slate-800" htmlFor="email">
             Email
-            <input className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" id="email" name="email" type="email" autoComplete="email" required />
+            <input className="input mt-1" id="email" name="email" type="email" autoComplete="email" required />
           </label>
           <label className="block text-sm font-medium text-slate-800" htmlFor="password">
             Password
-            <input className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" id="password" name="password" type="password" autoComplete={isSignUp ? "new-password" : "current-password"} minLength={8} required />
+            <input className="input mt-1" id="password" name="password" type="password" autoComplete={isSignUp ? "new-password" : "current-password"} minLength={8} required />
           </label>
           <p aria-live="polite" className={message ? "text-sm text-rose-700" : "sr-only"}>{message}</p>
           <button className="w-full rounded-lg bg-indigo-600 px-4 py-2 font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting}>

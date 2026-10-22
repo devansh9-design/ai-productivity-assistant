@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAIPlanningContext } from "@/lib/ai/context";
 import { generateGeminiJson } from "@/lib/gemini";
 import { PROPOSAL_TYPES, type PlanningProposal } from "@/lib/ai/proposal";
-import { validatePlanningProposal } from "@/lib/ai/validate-proposal";
+import { dropNullItemFields, validatePlanningProposal } from "@/lib/ai/validate-proposal";
 import { requireUser } from "@/lib/auth/require-user";
 import { AI_REQUESTS_PER_DAY, AI_REQUESTS_PER_MINUTE, claimAIRequest, describeWait } from "@/lib/ai/rate-limit";
 import { errorFields, log } from "@/lib/log";
@@ -17,19 +17,23 @@ const proposalSchema = {
     type: { type: "string", enum: [...PROPOSAL_TYPES] },
     summary: { type: "string" },
     reason: { type: "string" },
+    // Every field is required (null when it does not apply): with optional
+    // fields, fast models often left out the times and the proposal failed
+    // validation. Nulls are removed again before validation.
     items: {
       type: "array",
       items: {
         type: "object",
         properties: {
-          task_id: { type: "string" },
+          task_id: { type: "string", nullable: true },
           title: { type: "string" },
+          start_time: { type: "string", nullable: true, description: "HH:mm local time; null only for non-schedule proposals" },
+          end_time: { type: "string", nullable: true, description: "HH:mm local time; null only for non-schedule proposals" },
+          estimated_minutes: { type: "integer", nullable: true },
           reason: { type: "string" },
-          start_time: { type: "string" },
-          end_time: { type: "string" },
-          estimated_minutes: { type: "integer" },
         },
-        required: ["reason"],
+        required: ["task_id", "title", "start_time", "end_time", "estimated_minutes", "reason"],
+        propertyOrdering: ["task_id", "title", "start_time", "end_time", "estimated_minutes", "reason"],
       },
     },
   },
@@ -74,7 +78,7 @@ export async function POST(request: NextRequest) {
       "Never propose modifying a completed, skipped, or otherwise ineligible task.",
       "Never create overlapping schedule items.",
       "When the user gives an explicit available duration (for example, 30 minutes or two hours), the total proposed scheduled duration must not exceed that limit.",
-      "Only schedule inside the supplied availability. The availability array is authoritative: kind=working defines schedulable windows; sleep, meal, travel, and break are blocked; high_focus is a preferred working window.",
+      "Only schedule inside the supplied availability. The availability array is authoritative: kind=working defines schedulable windows; class, sleep, meal, travel, break, and exercise are blocked; high_focus is a preferred working window.",
       "If availability is empty or contains no working window for the requested day, do not invent a schedule. Return a clear summary explaining that working hours are not configured for today and use an empty items array.",
       "When the user gives an explicit available duration, first convert it to minutes and use that exact budget as the planning constraint. Do not arbitrarily reduce the session length: if eligible work can fill the available time, schedule as much of the budget as practical, prioritizing higher-priority and overdue tasks.",
       "For a 2-hour request, treat the budget as 120 minutes. If the best task takes 90 minutes, use the remaining 30 minutes on the next eligible task when possible; if the next task is longer than 30 minutes, schedule a 30-minute partial session.",
@@ -98,7 +102,7 @@ export async function POST(request: NextRequest) {
     ].join("\n");
 
     const proposal = await generateGeminiJson({ prompt, responseSchema: proposalSchema });
-    const validation = validatePlanningProposal(proposal);
+    const validation = validatePlanningProposal(dropNullItemFields(proposal));
 
     if (!validation.ok) {
       return NextResponse.json({ ok: false, error: "AI returned an invalid planning proposal.", details: validation.error }, { status: 422 });

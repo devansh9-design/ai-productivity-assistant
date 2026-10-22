@@ -27,13 +27,13 @@ export default async function MilestonesPage() {
         Milestones mark meaningful checkpoints inside a project, each with its own due date.
       </p>
 
-      <ActionForm action={createMilestone} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+      <ActionForm action={createMilestone} className="mt-8 card p-6">
         <h2 className="text-lg font-semibold text-slate-900">New milestone</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="block text-sm font-medium text-slate-800 sm:col-span-2" htmlFor="milestone-title">
             Title
             <input
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="milestone-title"
               name="title"
               required
@@ -43,7 +43,7 @@ export default async function MilestonesPage() {
           <label className="block text-sm font-medium text-slate-800" htmlFor="milestone-project">
             Project
             <select
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="milestone-project"
               name="project_id"
               defaultValue=""
@@ -59,7 +59,7 @@ export default async function MilestonesPage() {
           <label className="block text-sm font-medium text-slate-800" htmlFor="milestone-due-date">
             Due date
             <input
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="milestone-due-date"
               name="due_date"
               type="date"
@@ -68,7 +68,7 @@ export default async function MilestonesPage() {
           <label className="block text-sm font-medium text-slate-800 sm:col-span-2" htmlFor="milestone-description">
             Description
             <textarea
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="milestone-description"
               name="description"
               rows={2}
@@ -77,7 +77,7 @@ export default async function MilestonesPage() {
         </div>
         <ActionSubmitButton
           pendingLabel="Adding…"
-          className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+          className="mt-4 btn-primary"
         >
           Add milestone
         </ActionSubmitButton>
@@ -98,7 +98,7 @@ export default async function MilestonesPage() {
         )}
 
         {milestones?.map((milestone) => (
-          <article key={milestone.id} className="rounded-2xl border border-slate-200 bg-white p-5">
+          <article key={milestone.id} className="card p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="flex flex-wrap items-center gap-2">

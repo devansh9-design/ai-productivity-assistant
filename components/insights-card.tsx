@@ -2,7 +2,7 @@ import type { Insight } from "@/lib/preferences/insights";
 
 export function InsightsCard({ insights, durationFactor }: { insights: Insight[]; durationFactor: number }) {
   return (
-    <section aria-labelledby="insights-title" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+    <section aria-labelledby="insights-title" className="mt-6 card p-5">
       <h2 id="insights-title" className="text-lg font-semibold text-slate-900">Patterns from your history</h2>
       {insights.length === 0 ? (
         <p className="mt-2 text-sm text-slate-600">

@@ -7,7 +7,7 @@ const BUTTON_CLASS = "mt-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3
 
 export function ReplanPanel({ lowEnergyMaxBlockMinutes }: { lowEnergyMaxBlockMinutes: number }) {
   return (
-    <section aria-labelledby="replan-title" className="mt-4 rounded-2xl border border-slate-200 bg-white p-5">
+    <section aria-labelledby="replan-title" className="mt-4 card p-5">
       <h2 id="replan-title" className="text-lg font-semibold text-slate-900">Replan the rest of today</h2>
       <p className="mt-1 text-sm text-slate-600">
         Builds a new draft from the current time. Blocks for tasks you have started or finished stay as they are, and Google Calendar is unchanged until you confirm the draft.
@@ -39,10 +39,10 @@ export function ReplanPanel({ lowEnergyMaxBlockMinutes }: { lowEnergyMaxBlockMin
         <p className="mt-1 text-sm text-slate-600">Fills the window with open tasks that are not on today&apos;s plan yet, keeping everything else in place.</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-sm font-medium text-slate-800">From
-            <input name="start_time" type="time" required className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" />
+            <input name="start_time" type="time" required className="input mt-1" />
           </label>
           <label className="text-sm font-medium text-slate-800">Until
-            <input name="end_time" type="time" required className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" />
+            <input name="end_time" type="time" required className="input mt-1" />
           </label>
         </div>
         <ActionSubmitButton pendingLabel="Replanning..." className={`${BUTTON_CLASS} self-start`}>Fill my free time</ActionSubmitButton>

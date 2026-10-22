@@ -27,7 +27,7 @@ const RECENT_REFLECTIONS_LIMIT = 7;
 
 function TaskRow({ task, activeSession }: { task: Task; activeSession: TaskSession | null }) {
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-5">
+    <article className="card p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -167,11 +167,11 @@ export default async function TodayPage() {
         Today
       </h1>
 
-      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+      <div className="mt-6 card p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div><h2 className="text-lg font-semibold text-slate-900">Daily schedule</h2><p className="mt-1 text-sm text-slate-600">{activePlan ? `Plan v${activePlan.version} with ${activePlan.buffer_minutes} minutes of protected buffer.` : "Generate a deterministic plan from your settings, commitments, and open tasks."}</p>
             {calendarPauseNote && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{calendarPauseNote} <Link href="/settings" className="font-semibold underline">Change in Settings</Link></p>}</div>
-          <ActionForm action={generateDraftPlan} resetOnSuccess={false}><ActionSubmitButton pendingLabel="Generating..." className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">{activePlan ? "Regenerate plan" : "Generate plan"}</ActionSubmitButton></ActionForm>
+          <ActionForm action={generateDraftPlan} resetOnSuccess={false}><ActionSubmitButton pendingLabel="Generating..." className="btn-primary">{activePlan ? "Regenerate plan" : "Generate plan"}</ActionSubmitButton></ActionForm>
         </div>
       </div>
 
@@ -215,7 +215,7 @@ export default async function TodayPage() {
           <div className="mt-4 flex justify-center">
             <Link
               href="/tasks"
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+              className="btn-primary"
             >
               Go to Tasks
             </Link>
@@ -225,7 +225,7 @@ export default async function TodayPage() {
 
       {!tasksError && totalToday > 0 && (
         <>
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+          <div className="mt-6 card p-5">
             <div className="flex items-center justify-between text-sm font-medium text-slate-700">
               <span>
                 {completedToday.length} of {totalToday} done today

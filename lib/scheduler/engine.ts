@@ -1,4 +1,6 @@
-export type SchedulerRuleKind = "working" | "high_focus" | "sleep" | "meal" | "travel" | "break" | "exercise";
+import { minutesFromHHMM } from "@/lib/time";
+
+export type SchedulerRuleKind = "working" | "high_focus" | "sleep" | "meal" | "travel" | "break" | "exercise" | "class";
 export type SchedulerEnergyLevel = "low" | "medium" | "high" | null;
 export type SchedulerPriority = "low" | "medium" | "high" | "urgent";
 
@@ -102,11 +104,7 @@ export const LOW_ENERGY_DEFERRAL_REASON = "low_energy: high-energy work is defer
 export const WEEKLY_PRIORITY_BOOST = 50;
 
 function timeToMinutes(value: string): number | null {
-  const match = /^(\d{2}):(\d{2})/.exec(value);
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  return hours <= 23 && minutes <= 59 ? hours * 60 + minutes : null;
+  return minutesFromHHMM(value);
 }
 
 function minutesToTime(minutes: number): string {

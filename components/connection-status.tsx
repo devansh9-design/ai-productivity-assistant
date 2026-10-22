@@ -33,7 +33,7 @@ export function ConnectionStatus() {
   if (state === "online") return null;
   return (
     <div role="status" aria-live="polite"
-      className={`fixed inset-x-0 bottom-0 z-50 px-4 py-3 text-center text-sm font-medium md:left-64 ${state === "offline" ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800"}`}>
+      className={`fixed inset-x-0 bottom-0 z-50 px-4 py-3 text-center text-sm font-medium app-beside-sidebar md:left-64 ${state === "offline" ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800"}`}>
       {state === "offline"
         ? "You're offline. Changes and AI requests won't go through until your connection is back."
         : "Back online. The page has been refreshed."}

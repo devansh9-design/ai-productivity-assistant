@@ -3,7 +3,72 @@
 @tailwind utilities;
 
 :root { color-scheme: light; }
+:root.dark { color-scheme: dark; }
 * { box-sizing: border-box; }
-body { margin: 0; background: #f8fafc; color: #172033; }
-button, input { font: inherit; }
+body { margin: 0; background: rgb(var(--slate-50)); color: rgb(var(--slate-900)); -webkit-font-smoothing: antialiased; }
+
+/*
+ * Dark-theme fix-ups for the few places where a mirrored colour would be
+ * wrong (see tailwind.config.ts): white text on solid buttons stays white,
+ * solid hover/pressed backgrounds stay mid-tone instead of turning pale, and
+ * the menu backdrop stays dark.
+ */
+.dark .text-white,
+.dark .btn-primary { color: rgb(255 255 255); }
+.dark .hover\:bg-indigo-700:hover,
+.dark .btn-primary:hover { background-color: rgb(var(--indigo-500)); }
+.dark .active\:bg-indigo-800:active,
+.dark .btn-primary:active { background-color: rgb(var(--indigo-400)); }
+.dark .hover\:bg-emerald-700:hover { background-color: rgb(var(--emerald-500)); }
+.dark .bg-slate-950\/40 { background-color: rgb(0 0 0 / 0.6); }
+/* Mid accent shades stay solid for buttons; as small text they need to be lighter on dark. */
+.dark .text-indigo-600 { color: rgb(122 162 247); } /* navy theme blue */
+.dark .text-rose-600 { color: rgb(247 118 142); } /* navy theme red */
+button, input, select, textarea { font: inherit; }
 :focus-visible { outline: 3px solid #4f46e5; outline-offset: 2px; }
+
+/*
+ * Desktop sidebar collapse (☰). The class is set on <html> before paint
+ * (lib/theme.ts), so a hidden sidebar never flashes open on load. On phones
+ * the sidebar is a drawer instead and none of this applies.
+ */
+@media (min-width: 768px) {
+  .app-sidebar, .app-main, .app-beside-sidebar { transition: transform 200ms ease, margin-left 200ms ease, left 200ms ease; }
+  .sidebar-collapsed .app-sidebar { transform: translateX(-100%); }
+  .sidebar-collapsed .app-main { margin-left: 0; padding-top: 4.5rem; }
+  .sidebar-collapsed .app-beside-sidebar { left: 0; }
+  .sidebar-collapsed .app-sidebar-reopen { display: inline-flex; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-sidebar, .app-main, .app-beside-sidebar { transition: none; }
+}
+
+/*
+ * Shared building blocks, so every form field, button and card looks and
+ * behaves the same. Add spacing and sizes next to them at the call site
+ * (for example "input mt-1" or "card p-5").
+ */
+@layer components {
+  .input {
+    @apply block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm transition-colors
+      placeholder:text-slate-400 hover:border-slate-400
+      focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200
+      disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors
+      hover:bg-indigo-700 active:bg-indigo-800
+      disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition-colors
+      hover:bg-slate-50 active:bg-slate-100
+      disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .card {
+    @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
+  }
+}

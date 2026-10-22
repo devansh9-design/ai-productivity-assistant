@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { LoaderCircle } from "lucide-react";
 import type { PlanningProposal } from "@/lib/ai/proposal";
 import { confirmAIProposal } from "@/lib/plans/actions";
 
@@ -108,7 +109,7 @@ export function AIChat() {
   }
 
   return (
-    <section aria-labelledby="ai-chat-title" className="mt-8 rounded-2xl border border-slate-200 bg-white p-5">
+    <section aria-labelledby="ai-chat-title" className="mt-8 card p-5">
       <div>
         <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">AI planning</p>
         <h2 id="ai-chat-title" className="mt-1 text-xl font-bold text-slate-900">Ask your productivity assistant</h2>
@@ -126,16 +127,17 @@ export function AIChat() {
           maxLength={4000}
           rows={4}
           placeholder="I have two hours tonight. What should I work on?"
-          className="w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none"
+          className="input resize-y rounded-xl px-4 py-3 text-sm"
         />
         <div className="mt-3 flex items-center justify-between gap-3">
           <span className="text-xs text-slate-500">{message.length}/4000</span>
           <button
             type="submit"
             disabled={loading || !message.trim()}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="btn-primary"
           >
-            {loading ? "Thinking..." : "Get proposal"}
+            {loading && <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />}
+            {loading ? "Thinking…" : "Get proposal"}
           </button>
         </div>
       </form>

@@ -69,7 +69,7 @@ export function PlanForm({ planningWeek, reviewWeek, ranked, priorities, shortli
       </fieldset>
 
       <div>
-        <ActionSubmitButton pendingLabel="Saving..." className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Save priorities and shortlist</ActionSubmitButton>
+        <ActionSubmitButton pendingLabel="Saving..." className="btn-primary">Save priorities and shortlist</ActionSubmitButton>
         <p className="mt-2 text-xs text-slate-500">Saving never creates or confirms a daily plan, and never changes Google Calendar.</p>
       </div>
     </ActionForm>

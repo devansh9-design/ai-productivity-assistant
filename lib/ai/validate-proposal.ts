@@ -10,6 +10,24 @@ function isString(value: unknown, maxLength = 2000): value is string {
   return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
 }
 
+/**
+ * The model's schema makes every item field required and uses null where a
+ * field does not apply. This turns those nulls back into missing fields, which
+ * is what the validator and the rest of the app expect. Anything that is not
+ * a proposal-shaped object is returned unchanged for the validator to reject.
+ */
+export function dropNullItemFields(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const proposal = value as Record<string, unknown>;
+  if (!Array.isArray(proposal.items)) return value;
+  return {
+    ...proposal,
+    items: proposal.items.map((item) => item && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(Object.entries(item).filter(([, field]) => field !== null))
+      : item),
+  };
+}
+
 export function validatePlanningProposal(
   value: unknown,
 ): { ok: true; data: PlanningProposal } | { ok: false; error: string } {

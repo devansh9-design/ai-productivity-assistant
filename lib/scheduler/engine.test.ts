@@ -19,6 +19,19 @@ describe("generateSchedule", () => {
     expect(result.unscheduled).toEqual([{ taskId: "task-1", reason: "No working availability is configured for this day." }]);
   });
 
+  it("never places work in a weekly class", () => {
+    const result = generateSchedule(baseInput({
+      availabilityRules: [
+        { weekday: 1, kind: "working", startTime: "09:00", endTime: "14:00" },
+        { weekday: 1, kind: "class", startTime: "09:00", endTime: "12:00" },
+      ],
+      tasks: [baseTask({ estimatedMinutes: 60 })],
+    }));
+    const work = result.blocks.filter((block) => block.kind === "task");
+    expect(work).toHaveLength(1);
+    expect(work[0].startTime >= "12:00").toBe(true);
+  });
+
   it("does not automatically schedule in-progress tasks", () => {
     const result = generateSchedule(baseInput({
       tasks: [

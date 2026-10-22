@@ -30,7 +30,7 @@ export function PlanHistory({ entries }: PlanHistoryProps) {
   if (entries.length === 0) return null;
 
   return (
-    <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+    <div className="mt-6 card p-5">
       <h2 className="text-lg font-semibold text-slate-900">Plan history</h2>
       <p className="mt-1 text-sm text-slate-600">
         Older versions of today&apos;s plan.

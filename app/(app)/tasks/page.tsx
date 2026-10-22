@@ -51,13 +51,13 @@ export default async function TasksPage({
       </h1>
       <p className="mt-2 max-w-lg text-slate-600">Every task can link to a goal, project, and milestone.</p>
 
-      <ActionForm action={createTask} className="mt-8 rounded-2xl border border-slate-200 bg-white p-6">
+      <ActionForm action={createTask} className="mt-8 card p-6">
         <h2 className="text-lg font-semibold text-slate-900">New task</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="block text-sm font-medium text-slate-800 sm:col-span-2" htmlFor="task-title">
             Title
             <input
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="task-title"
               name="title"
               required
@@ -68,7 +68,7 @@ export default async function TasksPage({
           <label className="block text-sm font-medium text-slate-800" htmlFor="task-category">
             Category
             <input
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="task-category"
               name="category"
               placeholder="e.g. DSA, gym, coursework"
@@ -78,7 +78,7 @@ export default async function TasksPage({
           <label className="block text-sm font-medium text-slate-800" htmlFor="task-priority">
             Priority
             <select
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="task-priority"
               name="priority"
               defaultValue="medium"
@@ -93,7 +93,7 @@ export default async function TasksPage({
           <label className="block text-sm font-medium text-slate-800" htmlFor="task-energy">
             Energy level
             <select
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="task-energy"
               name="energy_level"
               defaultValue=""
@@ -108,7 +108,7 @@ export default async function TasksPage({
           <label className="block text-sm font-medium text-slate-800" htmlFor="task-estimate">
             Estimated minutes
             <input
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="task-estimate"
               name="estimated_minutes"
               type="number"
@@ -119,14 +119,14 @@ export default async function TasksPage({
 
           <label className="block text-sm font-medium text-slate-800" htmlFor="task-urgency">
             Urgency
-            <select className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" id="task-urgency" name="urgency" defaultValue="3">
+            <select className="input mt-1" id="task-urgency" name="urgency" defaultValue="3">
               <option value="1">1 - Low</option><option value="2">2</option><option value="3">3 - Medium</option><option value="4">4</option><option value="5">5 - Critical</option>
             </select>
           </label>
 
           <label className="block text-sm font-medium text-slate-800" htmlFor="task-impact">
             Impact
-            <select className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" id="task-impact" name="impact" defaultValue="3">
+            <select className="input mt-1" id="task-impact" name="impact" defaultValue="3">
               <option value="1">1 - Low</option><option value="2">2</option><option value="3">3 - Medium</option><option value="4">4</option><option value="5">5 - High</option>
             </select>
           </label>
@@ -134,7 +134,7 @@ export default async function TasksPage({
           <label className="block text-sm font-medium text-slate-800" htmlFor="task-due-date">
             Due date
             <input
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="task-due-date"
               name="due_date"
               type="date"
@@ -149,7 +149,7 @@ export default async function TasksPage({
           <label className="block text-sm font-medium text-slate-800" htmlFor="task-goal">
             Goal
             <select
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="task-goal"
               name="goal_id"
               defaultValue=""
@@ -166,7 +166,7 @@ export default async function TasksPage({
           <label className="block text-sm font-medium text-slate-800" htmlFor="task-project">
             Project
             <select
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="task-project"
               name="project_id"
               defaultValue=""
@@ -183,7 +183,7 @@ export default async function TasksPage({
           <label className="block text-sm font-medium text-slate-800" htmlFor="task-milestone">
             Milestone
             <select
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="task-milestone"
               name="milestone_id"
               defaultValue=""
@@ -200,7 +200,7 @@ export default async function TasksPage({
           <label className="block text-sm font-medium text-slate-800 sm:col-span-2" htmlFor="task-description">
             Description
             <textarea
-              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+              className="input mt-1"
               id="task-description"
               name="description"
               rows={2}
@@ -209,7 +209,7 @@ export default async function TasksPage({
         </div>
         <ActionSubmitButton
           pendingLabel="Adding…"
-          className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+          className="mt-4 btn-primary"
         >
           Add task
         </ActionSubmitButton>
@@ -247,7 +247,7 @@ export default async function TasksPage({
         )}
 
         {visibleTasks.map((task) => (
-          <article key={task.id} className="rounded-2xl border border-slate-200 bg-white p-5">
+          <article key={task.id} className="card p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
