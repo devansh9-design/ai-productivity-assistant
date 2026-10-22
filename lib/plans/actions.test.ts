@@ -4,12 +4,18 @@ import * as authModule from "@/lib/auth/require-user";
 import * as oauthModule from "@/lib/google/oauth";
 import * as calendarModule from "@/lib/google/calendar";
 import * as personalizationModule from "@/lib/preferences/load";
+import * as materializeModule from "@/lib/routines/materialize";
 import { DEFAULT_PLANNING_PREFERENCES } from "@/lib/preferences/preferences";
 import { cookies } from "next/headers";
 import { GoogleRequestError } from "@/lib/google/errors";
 import { CALENDAR_ERROR_MESSAGES, PLAN_WITHOUT_CALENDAR_WARNING } from "@/lib/integrations/calendar";
 
 // Mock next/headers
+// Creating routine tasks has its own database tests (scripts/db-tests/routine-tasks.sql).
+vi.mock("@/lib/routines/materialize", () => ({
+  materializeRoutineTasks: vi.fn().mockResolvedValue(0),
+}));
+
 vi.mock("next/headers", () => ({
   cookies: vi.fn(),
 }));
@@ -181,6 +187,12 @@ describe("generateDraftPlan with the Day 12 calendar switches", () => {
   });
 
   afterEach(() => vi.restoreAllMocks());
+
+  it("creates today's routine tasks before planning, for the student's local date", async () => {
+    const supabase = signInWith({ planning_enabled: false, publishing_enabled: true, needs_reconnect: false });
+    await generateDraftPlan(form());
+    expect(materializeModule.materializeRoutineTasks).toHaveBeenCalledWith(supabase, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+  });
 
   it("makes no Google call while calendar planning is paused, and says so", async () => {
     const supabase = signInWith({ planning_enabled: false, publishing_enabled: true, needs_reconnect: false });

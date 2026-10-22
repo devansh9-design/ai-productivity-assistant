@@ -11,6 +11,7 @@ import { ActionForm } from "@/components/action-form";
 import { ActionSubmitButton } from "@/components/action-submit-button";
 import { CategoryBadge, GoalFields } from "@/components/goals/goal-fields";
 import { DeleteGoalButton } from "@/components/goals/delete-goal-button";
+import { AIRoadmapBuilder } from "@/components/goals/ai-roadmap-builder";
 import { MetricsSection, RoadmapSection, RoutinesSection, TargetsSection } from "@/components/goals/sections";
 import { StatusBadge } from "@/components/status-badge";
 
@@ -26,7 +27,7 @@ export default async function GoalPage({ params }: { params: Promise<{ id: strin
   const supabase = await createClient();
   const detail = await loadGoalDetail(supabase, id);
   if (!detail) notFound();
-  const { goal, metrics, phases, targets, routines } = detail;
+  const { goal, metrics, phases, targets, routines, progress } = detail;
   const today = getTodayISODate((await cookies()).get(TIMEZONE_COOKIE_NAME)?.value || DEFAULT_TIMEZONE);
   const daysLeft = goal.target_date ? daysBetween(today, goal.target_date) - 1 : null;
 
@@ -67,7 +68,15 @@ export default async function GoalPage({ params }: { params: Promise<{ id: strin
       </details>
 
       <div className="mt-8 space-y-6">
-        <MetricsSection goal={goal} metrics={metrics} />
+        {goal.status === "active" && (
+          <AIRoadmapBuilder
+            goal={{ id: goal.id, title: goal.title, start_date: goal.start_date, target_date: goal.target_date, weekly_hours: goal.weekly_hours, level: goal.level }}
+            existingMetrics={metrics.map((metric) => metric.name)}
+            hasRoadmap={phases.length > 0 || targets.length > 0 || routines.length > 0}
+            today={today}
+          />
+        )}
+        <MetricsSection goal={goal} metrics={metrics} progress={progress} />
         <RoadmapSection goal={goal} phases={phases} today={today} />
         <TargetsSection goal={goal} targets={targets} metrics={metrics} today={today} />
         <RoutinesSection goal={goal} routines={routines} metrics={metrics} />

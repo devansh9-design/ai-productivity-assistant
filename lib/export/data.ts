@@ -30,6 +30,13 @@ export const EXPORT_TABLES: ReadonlyArray<{ table: string; orderBy: string }> = 
   { table: "weekly_plan_items", orderBy: "id" },
   { table: "ai_conversations", orderBy: "id" },
   { table: "integration_status", orderBy: "provider" },
+  { table: "goal_metrics", orderBy: "id" },
+  { table: "goal_phases", orderBy: "id" },
+  { table: "weekly_targets", orderBy: "id" },
+  { table: "routines", orderBy: "id" },
+  { table: "progress_logs", orderBy: "id" },
+  { table: "evening_log_items", orderBy: "id" },
+  { table: "daily_feedback", orderBy: "id" },
 ];
 
 const PAGE_SIZE = 1000;

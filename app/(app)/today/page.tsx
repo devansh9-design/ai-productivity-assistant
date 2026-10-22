@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { StatusBadge, PriorityBadge, EmptyState } from "@/components/status-badge";
+import { StatusBadge, PriorityBadge, EmptyState, RoutineBadge } from "@/components/status-badge";
 import { TaskActionForm } from "@/components/task-action-form";
 import { TaskTimer } from "@/components/task-timer";
-import { EveningCheckinForm } from "@/components/evening-checkin-form";
+import { EveningLogForm } from "@/components/evening-log-form";
+import { DailyFeedbackCard, type FeedbackCardData } from "@/components/daily-feedback-card";
+import { loadDayFacts, loadFeedbackState } from "@/lib/feedback/load";
+import { dayLine, describeCandidate, sessionsLine, targetLine } from "@/lib/feedback/daily";
+import { loadEveningLog, type EveningLogData } from "@/lib/evening/load";
+import { MorningCheckinForm, morningSummary } from "@/components/morning-checkin-form";
 import { RecentReflections } from "@/components/recent-reflections";
 import { ActionForm } from "@/components/action-form";
 import { ActionSubmitButton } from "@/components/action-submit-button";
@@ -22,6 +27,7 @@ import { mondayOf } from "@/lib/review/week";
 import { WeekPrioritiesCard } from "@/components/review/week-priorities-card";
 import type { Checkin, DailyPlan, FixedCommitment, JournalEntry, PlanBlock, PlanUnscheduledTask, Task, TaskSession } from "@/lib/types";
 import { errorFields, log } from "@/lib/log";
+import { materializeRoutineTasks } from "@/lib/routines/materialize";
 
 const RECENT_REFLECTIONS_LIMIT = 7;
 
@@ -34,6 +40,7 @@ function TaskRow({ task, activeSession }: { task: Task; activeSession: TaskSessi
             <h3 className="text-base font-semibold text-slate-900">{task.title}</h3>
             <StatusBadge status={task.status} />
             <PriorityBadge priority={task.priority} />
+            {task.routine_id && <RoutineBadge />}
             {task.due_date && <span className="text-xs font-medium text-slate-500">Due {task.due_date}</span>}
           </div>
           {task.description && <p className="mt-1 text-sm text-slate-600">{task.description}</p>}
@@ -65,26 +72,20 @@ export default async function TodayPage() {
   const todayISODate = getTodayISODate(timeZone);
 
   const supabase = await createClient();
+  // Today's routine sessions become tasks before the page reads them.
+  await materializeRoutineTasks(supabase, todayISODate);
   const [
     { data: tasks, error: tasksError },
     { data: activeSessions },
-    { data: todayCheckin },
-    { data: todayJournalEntry },
     { data: recentJournalEntries },
     { data: recentCheckins },
     { data: allPlans },
     { data: fixedCommitments },
     { data: calendarSwitches },
+    { data: morningCheckin },
   ] = await Promise.all([
     supabase.from("tasks").select("*").order("due_date", { ascending: true }).returns<Task[]>(),
     supabase.from("task_sessions").select("*").is("ended_at", null).returns<TaskSession[]>(),
-    supabase
-      .from("checkins")
-      .select("*")
-      .eq("checkin_date", todayISODate)
-      .eq("type", "evening")
-      .maybeSingle<Checkin>(),
-    supabase.from("journal_entries").select("*").eq("entry_date", todayISODate).maybeSingle<JournalEntry>(),
     supabase
       .from("journal_entries")
       .select("*")
@@ -102,6 +103,7 @@ export default async function TodayPage() {
     supabase.from("fixed_commitments").select("*").eq("commitment_date", todayISODate).order("start_time").returns<FixedCommitment[]>(),
     // Display only; the plan actions re-read the switches before any Google call.
     supabase.from("integration_status").select("planning_enabled,publishing_enabled").eq("provider", "google_calendar").maybeSingle<{ planning_enabled: boolean; publishing_enabled: boolean }>(),
+    supabase.from("checkins").select("*").eq("checkin_date", todayISODate).eq("type", "morning").maybeSingle<Checkin>(),
   ]);
 
   const personalization = await loadPersonalization(supabase, timeZone);
@@ -110,6 +112,35 @@ export default async function TodayPage() {
     weekPlan = await loadWeeklyPlan(supabase, mondayOf(todayISODate));
   } catch (error) {
     log("error", "today.week_priorities_failed", errorFields(error));
+  }
+  let eveningLog: EveningLogData | null = null;
+  try {
+    eveningLog = await loadEveningLog(supabase, todayISODate, timeZone);
+  } catch (error) {
+    log("error", "today.evening_log_failed", errorFields(error));
+  }
+  // Numbers are worked out here from live data on every load; the stored note never carries them.
+  let feedbackCard: FeedbackCardData | null = null;
+  try {
+    const [facts, state] = await Promise.all([loadDayFacts(supabase, todayISODate), loadFeedbackState(supabase, todayISODate)]);
+    const today = dayLine(facts);
+    feedbackCard = {
+      source: state.feedback?.source ?? null,
+      summary: state.feedback?.summary ?? null,
+      numbers: [
+        ...(today ? [{ heading: null, lines: [today] }] : []),
+        ...facts.goals.map((goal) => ({
+          heading: goal.title,
+          lines: [...goal.targets.map(targetLine), ...(goal.sessions ? [sessionsLine(goal.sessions)] : [])],
+        })),
+      ],
+      suggestions: (state.feedback?.suggestions ?? []).map((item) => ({
+        id: item.id, description: describeCandidate(item, facts.tomorrow), reason: item.reason, status: item.status,
+      })),
+      needsFeedback: state.needsFeedback,
+    };
+  } catch (error) {
+    log("error", "today.feedback_failed", errorFields(error));
   }
   const calendarPauseNote = [
     calendarSwitches?.planning_enabled === false && "Calendar planning is paused: plans do not include your Google Calendar events.",
@@ -167,11 +198,14 @@ export default async function TodayPage() {
         Today
       </h1>
 
+      <MorningCheckinForm existingCheckin={morningCheckin ?? null} hasPlan={activePlan !== null} />
+
       <div className="mt-6 card p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div><h2 className="text-lg font-semibold text-slate-900">Daily schedule</h2><p className="mt-1 text-sm text-slate-600">{activePlan ? `Plan v${activePlan.version} with ${activePlan.buffer_minutes} minutes of protected buffer.` : "Generate a deterministic plan from your settings, commitments, and open tasks."}</p>
+          <div><h2 className="text-lg font-semibold text-slate-900">Daily schedule</h2><p className="mt-1 text-sm text-slate-600">{activePlan ? `Plan v${activePlan.version} with ${activePlan.buffer_minutes} minutes of protected buffer.` : morningCheckin ? "Generate a plan from your check-in, routines, weekly targets and deadlines." : "Start with the morning check-in above, and your plan is built from it."}</p>
+            {morningCheckin && <p className="mt-1 text-sm text-slate-600">Today&apos;s check-in: {morningSummary(morningCheckin)}.</p>}
             {calendarPauseNote && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{calendarPauseNote} <Link href="/settings" className="font-semibold underline">Change in Settings</Link></p>}</div>
-          <ActionForm action={generateDraftPlan} resetOnSuccess={false}><ActionSubmitButton pendingLabel="Generating..." className="btn-primary">{activePlan ? "Regenerate plan" : "Generate plan"}</ActionSubmitButton></ActionForm>
+          {(morningCheckin || activePlan) && <ActionForm action={generateDraftPlan} resetOnSuccess={false}><ActionSubmitButton pendingLabel="Generating..." className="btn-primary">{activePlan ? "Regenerate plan" : "Generate plan"}</ActionSubmitButton></ActionForm>}
         </div>
       </div>
 
@@ -276,7 +310,14 @@ export default async function TodayPage() {
         </>
       )}
 
-      <EveningCheckinForm existingCheckin={todayCheckin ?? null} existingReflection={todayJournalEntry ?? null} />
+      {eveningLog ? (
+        <EveningLogForm data={eveningLog} />
+      ) : (
+        <p role="alert" className="mt-8 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          The evening log could not be loaded. Refresh the page to try again.
+        </p>
+      )}
+      {feedbackCard && <DailyFeedbackCard data={feedbackCard} />}
       <RecentReflections entries={recentJournalEntries ?? []} checkinsByDate={checkinsByDate} />
     </section>
   );

@@ -54,6 +54,15 @@ export interface SchedulePolicy {
   mustDoAlreadyScheduled?: number;
   /** This week's chosen priorities. They get a bounded ranking boost; eligibility and every other rule still apply. */
   priorityTaskIds?: string[];
+  /** Most task minutes to place in total, from the morning check-in's free time. */
+  taskMinutesBudget?: number | null;
+  /**
+   * Tasks that keep a weekly target on track. They share the weekly priority
+   * boost; on a light day (low energy, or less time than the day has free)
+   * they come before every other optional task and are never deferred for
+   * low energy, only shortened by maxBlockMinutes.
+   */
+  weeklyTargetTaskIds?: string[];
 }
 
 export interface ScheduleInput {
@@ -96,6 +105,7 @@ const DEFAULT_BUFFER_PERCENT = 20;
 const MUST_DO_LIMIT = 3;
 export const NO_TIME_REASON ="No contiguous time remains within working hours after commitments and buffer.";
 export const LOW_ENERGY_DEFERRAL_REASON = "low_energy: high-energy work is deferred while your energy is low.";
+export const TIME_BUDGET_REASON = "time_budget: did not fit in the free time from your morning check-in.";
 /**
  * Ranking points for a weekly priority. Deliberately smaller than one urgency
  * level (100 points) and than being overdue (100 deadline points), so it only
@@ -210,6 +220,11 @@ function lighterFirst(tasks: SchedulerTask[]): SchedulerTask[] {
   return [...tasks].sort((a, b) => rank(a) - rank(b));
 }
 
+function weeklyTargetsFirst(tasks: SchedulerTask[], protectedIds: ReadonlySet<string>): SchedulerTask[] {
+  const rank = (task: SchedulerTask) => (protectedIds.has(task.id) ? 0 : 1);
+  return [...tasks].sort((a, b) => rank(a) - rank(b));
+}
+
 function findPlacement(slots: Interval[], duration: number, preferred: Interval[]): Interval | null {
   const candidates = [...preferred, ...slots];
   const seen = new Set<string>();
@@ -257,32 +272,43 @@ export function generateSchedule(input: ScheduleInput): ScheduleResult {
   const bufferMinutes = Math.ceil(availableMinutes * (bufferPercent / 100));
   const buffer = reserveBuffer(freeBeforeBuffer, bufferMinutes);
   let freeSlots = buffer.available;
+  const budget = policy.taskMinutesBudget ?? null;
+  let budgetLeft = budget === null ? Number.POSITIVE_INFINITY : Math.max(0, budget);
+  const weeklyTargetIds = new Set(policy.weeklyTargetTaskIds ?? []);
+  const lightDay = Boolean(policy.lowEnergy) || budgetLeft < totalMinutes(freeSlots);
   const blocks: ScheduledBlock[] = buffer.blocks.map((block) => ({ kind: "buffer", taskId: null, title: "Scheduling buffer", startTime: minutesToTime(block.start), endTime: minutesToTime(block.end) }));
 
   const withEstimate: SchedulerTask[] = [];
   for (const task of schedulableTasks) {
     if (!task.estimatedMinutes || task.estimatedMinutes <= 0) unscheduled.push({ taskId: task.id, reason: "An estimated duration is required to schedule this task." });
-    else if (policy.lowEnergy && task.energyLevel === "high") unscheduled.push({ taskId: task.id, reason: LOW_ENERGY_DEFERRAL_REASON });
+    else if (policy.lowEnergy && task.energyLevel === "high" && !weeklyTargetIds.has(task.id)) unscheduled.push({ taskId: task.id, reason: LOW_ENERGY_DEFERRAL_REASON });
     else withEstimate.push(task);
   }
   const mustDoCapacity = Math.max(0, MUST_DO_LIMIT - (policy.mustDoAlreadyScheduled ?? 0));
-  const boosted = new Set(policy.priorityTaskIds ?? []);
+  const boosted = new Set([...(policy.priorityTaskIds ?? []), ...weeklyTargetIds]);
   const rankedMustDos = sortTasks(withEstimate.filter((task) => task.mustDo), input.date, boosted);
-  const others = sortTasks(withEstimate.filter((task) => !task.mustDo), input.date, boosted);
-  const candidates = [...rankedMustDos.slice(0, mustDoCapacity), ...(policy.lowEnergy ? lighterFirst(others) : others)];
+  const sortedOthers = sortTasks(withEstimate.filter((task) => !task.mustDo), input.date, boosted);
+  const others = policy.lowEnergy ? lighterFirst(sortedOthers) : sortedOthers;
+  const candidates = [...rankedMustDos.slice(0, mustDoCapacity), ...(lightDay ? weeklyTargetsFirst(others, weeklyTargetIds) : others)];
   for (const task of rankedMustDos.slice(mustDoCapacity)) unscheduled.push({ taskId: task.id, reason: "must_do_limit: only the top three must-do tasks can be scheduled in one day." });
 
   for (const task of candidates) {
     const focusSlots = intersectIntervals(freeSlots, highFocus);
     const nonFocusSlots = subtractIntervals(freeSlots, highFocus);
     const preferred = task.energyLevel === "high" ? focusSlots : task.energyLevel === "low" ? nonFocusSlots : freeSlots;
-    const placement = findPlacement(freeSlots, effectiveDuration(task.estimatedMinutes as number, policy), preferred);
+    const duration = effectiveDuration(task.estimatedMinutes as number, policy);
+    if (duration > budgetLeft) {
+      unscheduled.push({ taskId: task.id, reason: TIME_BUDGET_REASON });
+      continue;
+    }
+    const placement = findPlacement(freeSlots, duration, preferred);
     if (!placement) {
       unscheduled.push({ taskId: task.id, reason: NO_TIME_REASON });
       continue;
     }
     blocks.push({ kind: "task", taskId: task.id, title: task.title, startTime: minutesToTime(placement.start), endTime: minutesToTime(placement.end) });
     freeSlots = removePlacement(freeSlots, placement);
+    budgetLeft -= duration;
   }
 
   return { blocks: blocks.sort((a, b) => a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime) || a.kind.localeCompare(b.kind)), unscheduled: unscheduled.sort((a, b) => a.taskId.localeCompare(b.taskId)), bufferMinutes, availableMinutes };

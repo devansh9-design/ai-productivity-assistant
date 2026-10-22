@@ -1,3 +1,5 @@
+import { Repeat } from "lucide-react";
+
 const STATUS_STYLES: Record<string, string> = {
   active: "bg-emerald-50 text-emerald-700",
   todo: "bg-slate-100 text-slate-700",
@@ -39,5 +41,14 @@ export function EmptyState({ title, description }: { title: string; description:
       <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
       <p className="mt-2 text-sm text-slate-600">{description}</p>
     </div>
+  );
+}
+
+/** Marks a task created by one of the student's routines. */
+export function RoutineBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-semibold text-violet-700">
+      <Repeat aria-hidden="true" className="h-3 w-3" />Routine
+    </span>
   );
 }

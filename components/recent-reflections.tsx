@@ -17,7 +17,7 @@ export function RecentReflections({
         <div className="mt-4">
           <EmptyState
             title="No reflections yet"
-            description="Save an evening check-in above and it will show up here."
+            description="Add a note in the evening log above and it will show up here."
           />
         </div>
       ) : (
