@@ -16,7 +16,7 @@ export function EveningCheckinForm({
   const alreadyCheckedIn = !!existingCheckin || !!existingReflection;
 
   return (
-    <details className="mt-8 card p-6" open={!alreadyCheckedIn}>
+    <details className="mt-8 card p-6" open={!alreadyCheckedIn} suppressHydrationWarning>
       <summary className="cursor-pointer text-lg font-semibold text-slate-900">
         Evening check-in {alreadyCheckedIn && <span className="ml-2 text-sm font-normal text-emerald-700">Saved for today ✓</span>}
       </summary>

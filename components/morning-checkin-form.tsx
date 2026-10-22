@@ -36,7 +36,8 @@ export function MorningCheckinForm({ existingCheckin, hasPlan }: { existingCheck
   }
 
   return (
-    <details className="mt-6 card p-5" open={!done}>
+    // Tapping the summary before hydration toggles `open` natively; that state belongs to the browser.
+    <details className="mt-6 card p-5" open={!done} suppressHydrationWarning>
       <summary className="cursor-pointer text-lg font-semibold text-slate-900">
         Morning check-in
         {done && <span className="ml-2 text-sm font-normal text-emerald-700">Done ✓ {morningSummary(existingCheckin)}</span>}
@@ -97,7 +98,7 @@ export function MorningCheckinForm({ existingCheckin, hasPlan }: { existingCheck
           />
         </label>
 
-        <details className="sm:col-span-2 rounded-lg border border-slate-200 p-3">
+        <details className="sm:col-span-2 rounded-lg border border-slate-200 p-3" suppressHydrationWarning>
           <summary className="cursor-pointer text-sm font-medium text-slate-800">Add an exam, trip or other fixed block</summary>
           <p className="mt-1 text-xs text-slate-500">It is added to today&apos;s commitments, so nothing is planned over it.</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-3">
