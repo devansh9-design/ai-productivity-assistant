@@ -5,6 +5,9 @@ import { StatusBadge, PriorityBadge, EmptyState, RoutineBadge } from "@/componen
 import { TaskActionForm } from "@/components/task-action-form";
 import { TaskTimer } from "@/components/task-timer";
 import { EveningLogForm } from "@/components/evening-log-form";
+import { DailyFeedbackCard, type FeedbackCardData } from "@/components/daily-feedback-card";
+import { loadDayFacts, loadFeedbackState } from "@/lib/feedback/load";
+import { dayLine, describeCandidate, sessionsLine, targetLine } from "@/lib/feedback/daily";
 import { loadEveningLog, type EveningLogData } from "@/lib/evening/load";
 import { MorningCheckinForm, morningSummary } from "@/components/morning-checkin-form";
 import { RecentReflections } from "@/components/recent-reflections";
@@ -115,6 +118,29 @@ export default async function TodayPage() {
     eveningLog = await loadEveningLog(supabase, todayISODate, timeZone);
   } catch (error) {
     log("error", "today.evening_log_failed", errorFields(error));
+  }
+  // Numbers are worked out here from live data on every load; the stored note never carries them.
+  let feedbackCard: FeedbackCardData | null = null;
+  try {
+    const [facts, state] = await Promise.all([loadDayFacts(supabase, todayISODate), loadFeedbackState(supabase, todayISODate)]);
+    const today = dayLine(facts);
+    feedbackCard = {
+      source: state.feedback?.source ?? null,
+      summary: state.feedback?.summary ?? null,
+      numbers: [
+        ...(today ? [{ heading: null, lines: [today] }] : []),
+        ...facts.goals.map((goal) => ({
+          heading: goal.title,
+          lines: [...goal.targets.map(targetLine), ...(goal.sessions ? [sessionsLine(goal.sessions)] : [])],
+        })),
+      ],
+      suggestions: (state.feedback?.suggestions ?? []).map((item) => ({
+        id: item.id, description: describeCandidate(item, facts.tomorrow), reason: item.reason, status: item.status,
+      })),
+      needsFeedback: state.needsFeedback,
+    };
+  } catch (error) {
+    log("error", "today.feedback_failed", errorFields(error));
   }
   const calendarPauseNote = [
     calendarSwitches?.planning_enabled === false && "Calendar planning is paused: plans do not include your Google Calendar events.",
@@ -291,6 +317,7 @@ export default async function TodayPage() {
           The evening log could not be loaded. Refresh the page to try again.
         </p>
       )}
+      {feedbackCard && <DailyFeedbackCard data={feedbackCard} />}
       <RecentReflections entries={recentJournalEntries ?? []} checkinsByDate={checkinsByDate} />
     </section>
   );
