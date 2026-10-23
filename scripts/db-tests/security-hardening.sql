@@ -20,7 +20,7 @@ grant all on hardening_results to authenticated, anon;
 insert into hardening_results select 'anon cannot call create_draft_plan',
   not has_function_privilege('anon', 'public.create_draft_plan'::regproc, 'execute'), '';
 insert into hardening_results select 'anon cannot call claim_ai_request',
-  not has_function_privilege('anon', 'public.claim_ai_request(integer, integer)', 'execute'), '';
+  not has_function_privilege('anon', 'public.claim_ai_request(integer, integer, integer)', 'execute'), '';
 insert into hardening_results select 'signed-in users can call create_draft_plan',
   has_function_privilege('authenticated', 'public.create_draft_plan'::regproc, 'execute'), '';
 insert into hardening_results select 'no API role can call a trigger function',
@@ -42,16 +42,16 @@ insert into hardening_results select 'updated_at trigger still runs for signed-i
   (select updated_at > created_at from public.integration_status), '';
 
 -- 3. The per-minute limit: two claims succeed, the third waits.
-insert into hardening_results select 'first claim allowed', public.claim_ai_request(2, 100) = 0, '';
-insert into hardening_results select 'second claim allowed', public.claim_ai_request(2, 100) = 0, '';
-do $$ declare wait integer := public.claim_ai_request(2, 100); begin
+insert into hardening_results select 'first claim allowed', (public.claim_ai_request(2, 100, 100000)->>'retry_after')::integer = 0, '';
+insert into hardening_results select 'second claim allowed', (public.claim_ai_request(2, 100, 100000)->>'retry_after')::integer = 0, '';
+do $$ declare wait integer := (public.claim_ai_request(2, 100, 100000)->>'retry_after')::integer; begin
   insert into hardening_results values ('third claim within a minute waits', wait between 1 and 60, wait || ' seconds');
 end $$;
 insert into hardening_results select 'a refused claim is not logged',
   (select count(*) = 2 from public.ai_request_log), '';
 
 -- 4. The per-day limit applies even when the minute limit allows it.
-do $$ declare wait integer := public.claim_ai_request(100, 2); begin
+do $$ declare wait integer := (public.claim_ai_request(100, 2, 100000)->>'retry_after')::integer; begin
   insert into hardening_results values ('daily limit waits', wait > 60, wait || ' seconds');
 end $$;
 
@@ -65,7 +65,7 @@ exception when insufficient_privilege then insert into hardening_results values 
 -- 6. Another user sees none of E's requests and has their own allowance.
 set test.uid = 'ffffffff-0000-4000-8000-000000000006';
 insert into hardening_results select 'user F cannot see E''s AI requests', (select count(*) = 0 from public.ai_request_log), '';
-insert into hardening_results select 'user F has their own allowance', public.claim_ai_request(2, 100) = 0, '';
+insert into hardening_results select 'user F has their own allowance', (public.claim_ai_request(2, 100, 100000)->>'retry_after')::integer = 0, '';
 do $$ begin
   insert into public.ai_request_log (user_id) values ('eeeeeeee-0000-4000-8000-000000000005');
   insert into hardening_results values ('user F cannot log a request as E', false, 'no error');

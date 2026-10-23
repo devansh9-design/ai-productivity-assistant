@@ -56,7 +56,7 @@ All new tables follow the existing pattern: `user_id` defaults to `auth.uid()`, 
 - **`progress_logs`**: dated metric values (`goal_metric_id`, `log_date`, `value`, `note`), entered in the evening log.
 - **`checkins`**: allow a `morning` type with `available_minutes`, `energy_level` and `notes`. Classes and exams stay in fixed commitments.
 - **`daily_feedback`**: one row per user per day. The AI's summary, suggestions, and the adjustment proposals and their outcome (applied or dismissed).
-- **Old data:** the Projects and Milestones features are removed in **Step 11**. Their tables only held Phase 1 test rows, so they are not moved into phases (decided 2026-10-22). The tables stay untouched until a later cleanup drops them. Nothing is deleted.
+- **Old data:** the Projects and Milestones features are removed in **Step 11**. Their tables only held Phase 1 test rows, so they are not moved into phases (decided 2026-10-22). A cleanup after Step 12 dropped the tables, with the owner's approval.
 
 ## 4. Build steps
 

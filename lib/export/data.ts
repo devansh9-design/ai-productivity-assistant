@@ -11,8 +11,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export const EXPORT_TABLES: ReadonlyArray<{ table: string; orderBy: string }> = [
   { table: "profiles", orderBy: "id" },
   { table: "goals", orderBy: "id" },
-  { table: "projects", orderBy: "id" },
-  { table: "milestones", orderBy: "id" },
   { table: "tasks", orderBy: "id" },
   { table: "task_dependencies", orderBy: "id" },
   { table: "task_sessions", orderBy: "id" },
