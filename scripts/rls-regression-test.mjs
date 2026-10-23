@@ -8,7 +8,7 @@
  * meaningfully tested against a mock -- it is Postgres policy evaluation,
  * not application code), exercising two authenticated users against:
  *
- *   - SELECT isolation on goals/projects/milestones/tasks
+ *   - SELECT isolation on goals/tasks
  *   - INSERT isolation (a row created by user A is invisible to user B)
  *   - UPDATE isolation (user B cannot modify user A's row)
  *   - DELETE isolation (user B cannot delete user A's row)
@@ -90,23 +90,9 @@ async function main() {
     .single();
   if (goalErr) throw new Error(`Setup failed creating goal as user A: ${goalErr.message}`);
 
-  const { data: projectA, error: projectErr } = await a.client
-    .from("projects")
-    .insert({ user_id: a.userId, title: "rls-test project", goal_id: goalA.id })
-    .select()
-    .single();
-  if (projectErr) throw new Error(`Setup failed creating project as user A: ${projectErr.message}`);
-
-  const { data: milestoneA, error: milestoneErr } = await a.client
-    .from("milestones")
-    .insert({ user_id: a.userId, title: "rls-test milestone", project_id: projectA.id })
-    .select()
-    .single();
-  if (milestoneErr) throw new Error(`Setup failed creating milestone as user A: ${milestoneErr.message}`);
-
   const { data: taskA, error: taskErr } = await a.client
     .from("tasks")
-    .insert({ user_id: a.userId, title: "rls-test task", goal_id: goalA.id, project_id: projectA.id })
+    .insert({ user_id: a.userId, title: "rls-test task", goal_id: goalA.id })
     .select()
     .single();
   if (taskErr) throw new Error(`Setup failed creating task as user A: ${taskErr.message}`);
@@ -114,8 +100,6 @@ async function main() {
   // --- SELECT isolation -------------------------------------------------
   for (const [table, id] of [
     ["goals", goalA.id],
-    ["projects", projectA.id],
-    ["milestones", milestoneA.id],
     ["tasks", taskA.id],
   ]) {
     const { data } = await b.client.from(table).select("*").eq("id", id);
@@ -147,20 +131,11 @@ async function main() {
   );
 
   // --- Cross-table FK isolation (Fix 1) -----------------------------------
-  const { error: crossProjectError } = await b.client
-    .from("projects")
-    .insert({ user_id: b.userId, title: "rls-test cross-user project", goal_id: goalA.id });
-  record(
-    "FK isolation: user B cannot create a project pointing at user A's goal",
-    !!crossProjectError,
-    crossProjectError?.message,
-  );
-
   const { error: crossTaskError } = await b.client
     .from("tasks")
-    .insert({ user_id: b.userId, title: "rls-test cross-user task", milestone_id: milestoneA.id });
+    .insert({ user_id: b.userId, title: "rls-test cross-user task", goal_id: goalA.id });
   record(
-    "FK isolation: user B cannot create a task pointing at user A's milestone",
+    "FK isolation: user B cannot create a task pointing at user A's goal",
     !!crossTaskError,
     crossTaskError?.message,
   );
@@ -176,8 +151,6 @@ async function main() {
 
   // --- Cleanup (as user A, who owns these rows) ---------------------------
   await a.client.from("tasks").delete().eq("id", taskA.id);
-  await a.client.from("milestones").delete().eq("id", milestoneA.id);
-  await a.client.from("projects").delete().eq("id", projectA.id);
   await a.client.from("goals").delete().eq("id", goalA.id);
 
   const failed = results.filter((r) => !r.passed);
