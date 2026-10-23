@@ -31,7 +31,7 @@ function signIn(aiWait = 0) {
   rpcCalls = [];
   const supabase = {
     rpc: (name: string, args: Record<string, unknown>) => {
-      if (name === "claim_ai_request") return Promise.resolve({ data: aiWait, error: null });
+      if (name === "claim_ai_request") return Promise.resolve({ data: aiWait ? { retry_after: aiWait, scope: "day" } : { retry_after: 0 }, error: null });
       rpcCalls.push({ name, args });
       return Promise.resolve({ data: null, error: null });
     },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildReplan, type ReplanBlock, type ReplanInput } from "@/lib/plans/replan";
-import { LOW_ENERGY_DEFERRAL_REASON, type SchedulerTask } from "@/lib/scheduler/engine";
+import { LOW_ENERGY_DEFERRAL_REASON, TIME_BUDGET_REASON, type SchedulerTask } from "@/lib/scheduler/engine";
 
 const task = (id: string, overrides: Partial<SchedulerTask> = {}): SchedulerTask => ({
   id, title: `Task ${id}`, status: "todo", priority: "medium", urgency: 3, impact: 3, mustDo: false,
@@ -157,6 +157,32 @@ describe("buildReplan: behind_schedule", () => {
       expect(start < minutes("12:00") && end > minutes("11:00")).toBe(false);
     }
     expect(result.blocks.filter((item) => item.kind === "calendar")).toHaveLength(1);
+  });
+});
+
+describe("buildReplan: the morning check-in's free time", () => {
+  it("never plans more task time than the check-in allowed, counting kept blocks first", () => {
+    // a (60 min) is under way; 120 minutes free leaves room for one more hour.
+    const result = buildReplan(baseInput({ taskMinutesBudget: 120 }));
+    const placed = result.blocks.filter((item) => item.kind === "task" && item.taskId !== "a");
+    expect(placed).toHaveLength(1);
+    expect(result.unscheduled).toEqual([{ taskId: placed[0].taskId === "b" ? "c" : "b", reason: TIME_BUDGET_REASON }]);
+    expect(result.summary).toContain("One of them would go past the 120 minutes of free time from your morning check-in.");
+  });
+
+  it("places nothing new when kept work already uses the free time", () => {
+    const result = buildReplan(baseInput({ taskMinutesBudget: 45 }));
+    expect(result.blocks.filter((item) => item.kind === "task").map((item) => item.taskId)).toEqual(["a"]);
+    expect(result.unscheduled.map((item) => item.reason)).toEqual([TIME_BUDGET_REASON, TIME_BUDGET_REASON]);
+  });
+
+  it("does not limit a free window the user states later", () => {
+    const result = buildReplan(baseInput({
+      mode: "free_time", taskMinutesBudget: 0,
+      currentBlocks: [block("a", "09:00", "10:00")],
+      freeWindow: { startTime: "14:00", endTime: "16:00" },
+    }));
+    expect(result.blocks.filter((item) => item.kind === "task").length).toBeGreaterThan(1);
   });
 });
 

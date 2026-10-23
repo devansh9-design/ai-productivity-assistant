@@ -105,3 +105,6 @@ jobs:
 
       - name: Database behaviour tests (evening log)
         run: psql -v ON_ERROR_STOP=1 -At -f scripts/db-tests/evening-log.sql
+
+      - name: Database behaviour tests (launch readiness)
+        run: psql -v ON_ERROR_STOP=1 -At -f scripts/db-tests/launch-readiness.sql

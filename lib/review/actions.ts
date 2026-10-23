@@ -51,10 +51,10 @@ export async function generateWeeklySummary(formData: FormData) {
       claim = await claimAIRequest(supabase);
     } catch (limitError) {
       log("error", "ai.rate_limit_check_failed", { userId: user.id, ...errorFields(limitError) });
-      claim = { allowed: false, retryAfterSeconds: 0 };
+      claim = { allowed: false, retryAfterSeconds: 0, scope: "day" };
     }
     if (!claim.allowed) {
-      if (claim.retryAfterSeconds > 0) log("warn", "ai.rate_limited", { userId: user.id, retryAfterSeconds: claim.retryAfterSeconds });
+      if (claim.retryAfterSeconds > 0) log("warn", "ai.rate_limited", { userId: user.id, retryAfterSeconds: claim.retryAfterSeconds, scope: claim.scope });
       summary = fallbackSummary(facts, claim.retryAfterSeconds > 0
         ? `The AI request limit was reached, so this summary was written from your numbers. The AI can be used again in ${describeWait(claim.retryAfterSeconds)}.`
         : "The AI service was unavailable, so this summary was written from your numbers.");

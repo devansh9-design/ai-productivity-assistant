@@ -3,6 +3,7 @@ import { ActionSubmitButton } from "@/components/action-submit-button";
 import { disconnectGoogleCalendar } from "@/lib/google/actions";
 import { updateCalendarSwitches } from "@/lib/integrations/actions";
 import { describeCalendarState, type CalendarIntegrationStatus, type CalendarState } from "@/lib/integrations/calendar";
+import { CONTACT_EMAIL } from "@/lib/contact";
 
 const STATE_BADGES: Record<CalendarState | "unknown", { label: string; className: string; dot: string }> = {
   unknown: { label: "Status unavailable", className: "bg-rose-100 text-rose-800", dot: "bg-rose-500" },
@@ -16,7 +17,7 @@ const STATE_BADGES: Record<CalendarState | "unknown", { label: string; className
 const OAUTH_ERRORS: Record<string, string> = {
   oauth_state_mismatch: "Security validation failed. Please try again.",
   token_exchange_failed: "Could not complete authorization. Please try again.",
-  access_denied: "Access was not granted.",
+  access_denied: `Access was not granted. If Google said the app is blocked or hasn't been verified, your Google account isn't on the beta list yet: email ${CONTACT_EMAIL} from it to be added.`,
 };
 
 interface Props {
@@ -54,6 +55,11 @@ export function CalendarStatusCard({ connected, status, timeZone, oauthResult, o
         When calendar planning is enabled, the app checks your Google Calendar events to avoid scheduling work during meetings. When publishing is enabled, confirmed plans are added to your separate AI Planner calendar.
       </p>
 
+      {!connected && (
+        <p className="mt-3 rounded-lg bg-slate-50 px-4 py-2 text-sm text-slate-600">
+          Optional. While the app is in beta, Google only lets accounts on its tester list connect; others see an &ldquo;Access blocked&rdquo; page from Google. To join, email <a href={`mailto:${CONTACT_EMAIL}?subject=Google%20Calendar%20beta`} className="font-medium text-indigo-700 hover:text-indigo-900">{CONTACT_EMAIL}</a> from the Google account you want to connect. Everything else works without it.
+        </p>
+      )}
       {oauthResult === "connected" && (
         <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-800">Google Calendar connected successfully.</p>
       )}

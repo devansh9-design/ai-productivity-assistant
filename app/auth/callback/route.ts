@@ -14,5 +14,6 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.redirect(new URL("/login?error=confirmation_failed", request.url));
+  const error = next === "/reset-password" ? "reset_failed" : "confirmation_failed";
+  return NextResponse.redirect(new URL(`/login?error=${error}`, request.url));
 }
